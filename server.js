@@ -1,4 +1,5 @@
 const express = require("express");
+const { Pool } = require("pg");
 
 const app = express();
 app.use(express.json());
@@ -10,6 +11,15 @@ const INSTAGRAM_ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const INSTAGRAM_USER_ID = "17841426513537979";
+
+
+// ==================================================
+// POSTGRESQL
+// ==================================================
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL
+});
 
 
 // ==================================================
@@ -80,22 +90,6 @@ const SALON = {
 
 
 // ==================================================
-// PAMIĘĆ ROZMÓW
-// ==================================================
-
-// Tymczasowa pamięć rozmów.
-// Kluczem jest ID klienta z Instagrama.
-
-const conversations = new Map();
-
-
-// Maksymalna liczba wiadomości przechowywanych
-// dla jednego klienta.
-
-const MAX_HISTORY = 10;
-
-
-// ==================================================
 // STRONA GŁÓWNA
 // ==================================================
 
@@ -138,6 +132,80 @@ app.get("/privacy", (req, res) => {
 
 
 // ==================================================
+// INICJALIZACJA BAZY
+// ==================================================
+
+async function initializeDatabase() {
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS conversation_messages (
+      id SERIAL PRIMARY KEY,
+      instagram_user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_conversation_user
+    ON conversation_messages(instagram_user_id, created_at)
+  `);
+
+  console.log("PostgreSQL: baza gotowa.");
+}
+
+
+// ==================================================
+// HISTORIA ROZMOWY
+// ==================================================
+
+async function getConversationHistory(instagramUserId) {
+
+  const result = await pool.query(
+    `
+      SELECT role, message
+      FROM conversation_messages
+      WHERE instagram_user_id = $1
+      ORDER BY created_at DESC
+      LIMIT 10
+    `,
+    [instagramUserId]
+  );
+
+  // Pobieramy ostatnie 10, ale wysyłamy AI
+  // w kolejności od najstarszej do najnowszej.
+
+  return result.rows.reverse();
+}
+
+
+// ==================================================
+// ZAPIS WIADOMOŚCI
+// ==================================================
+
+async function saveMessage(
+  instagramUserId,
+  role,
+  message
+) {
+
+  await pool.query(
+    `
+      INSERT INTO conversation_messages
+      (instagram_user_id, role, message)
+      VALUES ($1, $2, $3)
+    `,
+    [
+      instagramUserId,
+      role,
+      message
+    ]
+  );
+}
+
+
+// ==================================================
 // META WEBHOOK - WERYFIKACJA
 // ==================================================
 
@@ -147,7 +215,10 @@ app.get("/webhook", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+  if (
+    mode === "subscribe" &&
+    token === VERIFY_TOKEN
+  ) {
 
     console.log("Webhook zweryfikowany!");
 
@@ -159,7 +230,7 @@ app.get("/webhook", (req, res) => {
 
 
 // ==================================================
-// TWORZENIE INFORMACJI O SALONIE DLA AI
+// INFORMACJE O SALONIE
 // ==================================================
 
 function createSalonInformation() {
@@ -202,69 +273,58 @@ ${SALON.bookingUrl}
 
 
 // ==================================================
-// PAMIĘĆ ROZMOWY
-// ==================================================
-
-function getConversation(senderId) {
-
-  if (!conversations.has(senderId)) {
-    conversations.set(senderId, []);
-  }
-
-  return conversations.get(senderId);
-}
-
-
-function addToConversation(senderId, role, text) {
-
-  const conversation = getConversation(senderId);
-
-  conversation.push({
-    role,
-    text
-  });
-
-  // Nie pozwalamy pamięci rosnąć bez końca.
-
-  while (conversation.length > MAX_HISTORY) {
-    conversation.shift();
-  }
-}
-
-
-// ==================================================
 // OPENAI
 // ==================================================
 
-async function askAI(senderId, userMessage) {
+async function askAI(
+  instagramUserId,
+  userMessage
+) {
 
-  const salonInformation = createSalonInformation();
+  const salonInformation =
+    createSalonInformation();
 
-  const conversation = getConversation(senderId);
+
+  // Pobieramy poprzednią historię.
+
+  const previousMessages =
+    await getConversationHistory(
+      instagramUserId
+    );
 
 
-  // Dodajemy wiadomość klienta do pamięci.
+  // Zapisujemy aktualną wiadomość klienta.
 
-  addToConversation(
-    senderId,
+  await saveMessage(
+    instagramUserId,
     "user",
     userMessage
   );
 
 
-  // Budujemy historię rozmowy.
+  // Budujemy historię dla AI.
 
-  const conversationText = conversation
-    .map(message => {
+  const allMessages = [
+    ...previousMessages,
+    {
+      role: "user",
+      message: userMessage
+    }
+  ];
 
-      if (message.role === "user") {
-        return `Klient: ${message.text}`;
-      }
 
-      return `Asystent: ${message.text}`;
+  const conversationText =
+    allMessages
+      .map(message => {
 
-    })
-    .join("\n");
+        if (message.role === "user") {
+          return `Klient: ${message.message}`;
+        }
+
+        return `Asystent: ${message.message}`;
+
+      })
+      .join("\n");
 
 
   const response = await fetch(
@@ -273,8 +333,11 @@ async function askAI(senderId, userMessage) {
       method: "POST",
 
       headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
+        "Authorization":
+          `Bearer ${OPENAI_API_KEY}`,
+
+        "Content-Type":
+          "application/json"
       },
 
       body: JSON.stringify({
@@ -282,10 +345,11 @@ async function askAI(senderId, userMessage) {
         model: "gpt-5.6-luna",
 
         instructions: `
-Jesteś asystentem salonu barberskiego działającym
-na Instagramie.
+Jesteś asystentem salonu barberskiego
+działającym na Instagramie.
 
-Twoim zadaniem jest odpowiadać klientom salonu.
+Twoim zadaniem jest odpowiadać klientom
+salonu.
 
 ==================================================
 DANE SALONU
@@ -305,10 +369,11 @@ Zwykle odpowiadaj w 1–3 zdaniach.
 
 Możesz używać emoji, ale nie przesadzaj.
 
-Korzystaj wyłącznie z informacji dotyczących salonu
-zawartych powyżej.
+Korzystaj wyłącznie z informacji dotyczących
+salonu zawartych powyżej.
 
 NIGDY nie wymyślaj:
+
 - cen,
 - usług,
 - godzin otwarcia,
@@ -318,16 +383,18 @@ NIGDY nie wymyślaj:
 - dostępności terminów,
 - informacji o salonie.
 
-Jeżeli czegoś nie wiesz, nie zgaduj.
+Jeżeli czegoś nie wiesz,
+nie zgaduj.
 
-Powiedz klientowi, że dokładnej informacji może udzielić barber.
+Powiedz klientowi,
+że dokładnej informacji może udzielić barber.
 
 Nie twierdź, że jesteś człowiekiem.
 
 Nie mów, że jesteś ChatGPT.
 
 Jeżeli klient pyta o konkretną usługę,
-podaj jej dokładną cenę z danych salonu.
+podaj jej dokładną cenę.
 
 Jeżeli klient pyta o kilka usług,
 podaj ceny wszystkich pasujących usług.
@@ -348,8 +415,11 @@ poproś krótko o doprecyzowanie.
 PAMIĘTAJ KONTEKST ROZMOWY.
 
 Jeżeli klient napisze np.:
-"z brodą?"
+
+"a z brodą?"
+
 po wcześniejszym pytaniu o strzyżenie,
+
 zrozum, że może chodzić o usługę
 "Strzyżenie + broda".
 
@@ -380,39 +450,69 @@ ODPOWIEDZ NA OSTATNIĄ WIADOMOŚĆ KLIENTA.
   );
 
 
-  const data = await response.json();
+  const data =
+    await response.json();
 
-  console.log("OpenAI status:", response.status);
+
+  console.log(
+    "OpenAI status:",
+    response.status
+  );
 
 
   if (!response.ok) {
 
-    console.error("Błąd OpenAI:");
-    console.error(JSON.stringify(data, null, 2));
+    console.error(
+      "Błąd OpenAI:"
+    );
 
-    throw new Error(JSON.stringify(data));
+    console.error(
+      JSON.stringify(
+        data,
+        null,
+        2
+      )
+    );
+
+    throw new Error(
+      JSON.stringify(data)
+    );
   }
 
 
-  const aiText = data.output
-    ?.find(item => item.type === "message")
-    ?.content
-    ?.find(item => item.type === "output_text")
-    ?.text;
+  const aiText =
+    data.output
+      ?.find(
+        item =>
+          item.type === "message"
+      )
+      ?.content
+      ?.find(
+        item =>
+          item.type === "output_text"
+      )
+      ?.text;
 
 
-  console.log("Odpowiedź AI:", aiText);
+  console.log(
+    "Odpowiedź AI:",
+    aiText
+  );
 
 
-  if (!aiText || !aiText.trim()) {
+  if (
+    !aiText ||
+    !aiText.trim()
+  ) {
+
     return null;
   }
 
 
-  // Zapisujemy odpowiedź AI do pamięci.
+  // Zapisujemy odpowiedź AI.
 
-  addToConversation(
-    senderId,
+  await saveMessage(
+    instagramUserId,
     "assistant",
     aiText
   );
@@ -426,15 +526,26 @@ ODPOWIEDZ NA OSTATNIĄ WIADOMOŚĆ KLIENTA.
 // INSTAGRAM SEND API
 // ==================================================
 
-async function sendInstagramMessage(recipientId, text) {
+async function sendInstagramMessage(
+  recipientId,
+  text
+) {
 
   if (!recipientId) {
-    throw new Error("Brak recipientId");
+    throw new Error(
+      "Brak recipientId"
+    );
   }
 
 
-  if (!text || !text.trim()) {
-    throw new Error("Brak tekstu odpowiedzi AI");
+  if (
+    !text ||
+    !text.trim()
+  ) {
+
+    throw new Error(
+      "Brak tekstu odpowiedzi AI"
+    );
   }
 
 
@@ -442,32 +553,37 @@ async function sendInstagramMessage(recipientId, text) {
     `https://graph.instagram.com/v23.0/${INSTAGRAM_USER_ID}/messages`;
 
 
-  const response = await fetch(
-    url,
-    {
-      method: "POST",
+  const response =
+    await fetch(
+      url,
+      {
+        method: "POST",
 
-      headers: {
-        "Authorization": `Bearer ${INSTAGRAM_ACCESS_TOKEN}`,
-        "Content-Type": "application/json"
-      },
+        headers: {
+          "Authorization":
+            `Bearer ${INSTAGRAM_ACCESS_TOKEN}`,
 
-      body: JSON.stringify({
-
-        recipient: {
-          id: recipientId
+          "Content-Type":
+            "application/json"
         },
 
-        message: {
-          text: text
-        }
+        body: JSON.stringify({
 
-      })
-    }
-  );
+          recipient: {
+            id: recipientId
+          },
+
+          message: {
+            text: text
+          }
+
+        })
+      }
+    );
 
 
-  const data = await response.json();
+  const data =
+    await response.json();
 
 
   console.log(
@@ -478,9 +594,16 @@ async function sendInstagramMessage(recipientId, text) {
 
   if (!response.ok) {
 
-    console.error("Błąd Instagram API:");
     console.error(
-      JSON.stringify(data, null, 2)
+      "Błąd Instagram API:"
+    );
+
+    console.error(
+      JSON.stringify(
+        data,
+        null,
+        2
+      )
     );
 
     throw new Error(
@@ -502,106 +625,167 @@ async function sendInstagramMessage(recipientId, text) {
 // ODBIERANIE WIADOMOŚCI
 // ==================================================
 
-app.post("/webhook", async (req, res) => {
-
-  console.log("=================================");
-  console.log("Otrzymano webhook:");
-  console.log(
-    JSON.stringify(req.body, null, 2)
-  );
-  console.log("=================================");
-
-
-  try {
-
-    const entry = req.body.entry?.[0];
-
-    const messaging = entry?.messaging?.[0];
-
-    const senderId = messaging?.sender?.id;
-
-    const messageText = messaging?.message?.text;
-
-
-    // Ignorujemy webhooki,
-    // które nie są zwykłą wiadomością tekstową.
-
-    if (!senderId || !messageText) {
-
-      console.log(
-        "Webhook nie zawiera wiadomości tekstowej."
-      );
-
-      return res.sendStatus(200);
-    }
-
+app.post(
+  "/webhook",
+  async (req, res) => {
 
     console.log(
-      `Wiadomość od ${senderId}: ${messageText}`
+      "================================="
     );
-
-
-    // PYTAMY AI
-
-    const aiResponse = await askAI(
-      senderId,
-      messageText
-    );
-
-
-    if (!aiResponse || !aiResponse.trim()) {
-
-      console.log(
-        "AI nie zwróciło tekstu."
-      );
-
-      return res.sendStatus(200);
-    }
-
-
-    // WYSYŁAMY ODPOWIEDŹ
-
-    await sendInstagramMessage(
-      senderId,
-      aiResponse
-    );
-
 
     console.log(
-      "Cały proces zakończony poprawnie."
+      "Otrzymano webhook:"
+    );
+
+    console.log(
+      JSON.stringify(
+        req.body,
+        null,
+        2
+      )
+    );
+
+    console.log(
+      "================================="
     );
 
 
-    res.sendStatus(200);
+    try {
+
+      const entry =
+        req.body.entry?.[0];
 
 
-  } catch (error) {
+      const messaging =
+        entry?.messaging?.[0];
 
-    console.error("===============================");
-    console.error("BŁĄD:");
-    console.error(error);
-    console.error("===============================");
 
-    // Meta dostaje 200,
-    // nawet jeśli wewnętrznie wystąpił błąd.
+      const senderId =
+        messaging?.sender?.id;
 
-    res.sendStatus(200);
+
+      const messageText =
+        messaging?.message?.text;
+
+
+      // Ignorujemy webhooki,
+      // które nie są wiadomością tekstową.
+
+      if (
+        !senderId ||
+        !messageText
+      ) {
+
+        console.log(
+          "Webhook nie zawiera wiadomości tekstowej."
+        );
+
+        return res.sendStatus(200);
+      }
+
+
+      console.log(
+        `Wiadomość od ${senderId}: ${messageText}`
+      );
+
+
+      // AI + PostgreSQL
+
+      const aiResponse =
+        await askAI(
+          senderId,
+          messageText
+        );
+
+
+      if (
+        !aiResponse ||
+        !aiResponse.trim()
+      ) {
+
+        console.log(
+          "AI nie zwróciło tekstu."
+        );
+
+        return res.sendStatus(200);
+      }
+
+
+      // Wysyłamy odpowiedź.
+
+      await sendInstagramMessage(
+        senderId,
+        aiResponse
+      );
+
+
+      console.log(
+        "Cały proces zakończony poprawnie."
+      );
+
+
+      res.sendStatus(200);
+
+
+    } catch (error) {
+
+      console.error(
+        "==============================="
+      );
+
+      console.error(
+        "BŁĄD:"
+      );
+
+      console.error(error);
+
+      console.error(
+        "==============================="
+      );
+
+
+      // Meta dostaje 200,
+      // nawet jeśli wystąpił błąd.
+
+      res.sendStatus(200);
+    }
   }
-});
+);
 
 
 // ==================================================
 // START SERWERA
 // ==================================================
 
-app.listen(
-  PORT,
-  "0.0.0.0",
-  () => {
+async function startServer() {
 
-    console.log(
-      `Serwer działa na porcie ${PORT}`
+  try {
+
+    await initializeDatabase();
+
+    app.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+
+        console.log(
+          `Serwer działa na porcie ${PORT}`
+        );
+
+      }
     );
 
+  } catch (error) {
+
+    console.error(
+      "Nie udało się uruchomić aplikacji:"
+    );
+
+    console.error(error);
+
+    process.exit(1);
   }
-);
+}
+
+
+startServer();
