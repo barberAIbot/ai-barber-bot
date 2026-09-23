@@ -140,7 +140,7 @@ Jeżeli klient pyta o adres, podaj adres salonu.
 Jeżeli pytanie klienta jest niejasne, poproś go krótko o doprecyzowanie.
 
 Odpowiedzi powinny być krótkie — zwykle 1–3 zdania.
-`
+
       input: userMessage
     })
   });
