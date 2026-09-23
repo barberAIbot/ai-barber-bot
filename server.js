@@ -323,6 +323,79 @@ async function initializeDatabase() {
 }
 
 // ==================================================
+// POBIERANIE BARBERA Z BAZY
+// ==================================================
+
+async function getBarberByInstagramId(instagramUserId) {
+
+  const barberResult = await pool.query(
+    `
+      SELECT
+        id,
+        instagram_user_id,
+        name,
+        address,
+        booking_url
+      FROM barbers
+      WHERE instagram_user_id = $1
+      LIMIT 1
+    `,
+    [instagramUserId]
+  );
+
+  if (barberResult.rows.length === 0) {
+    return null;
+  }
+
+  const barber = barberResult.rows[0];
+
+
+  // ==================================================
+  // USŁUGI BARBERA
+  // ==================================================
+
+  const servicesResult = await pool.query(
+    `
+      SELECT
+        name,
+        price
+      FROM services
+      WHERE barber_id = $1
+      ORDER BY id ASC
+    `,
+    [barber.id]
+  );
+
+
+  // ==================================================
+  // GODZINY BARBERA
+  // ==================================================
+
+  const openingHoursResult = await pool.query(
+    `
+      SELECT
+        day,
+        hours
+      FROM opening_hours
+      WHERE barber_id = $1
+      ORDER BY id ASC
+    `,
+    [barber.id]
+  );
+
+
+  return {
+    id: barber.id,
+    instagramUserId: barber.instagram_user_id,
+    name: barber.name,
+    address: barber.address,
+    bookingUrl: barber.booking_url,
+    services: servicesResult.rows,
+    openingHours: openingHoursResult.rows
+  };
+}  
+
+// ==================================================
 // HISTORIA ROZMOWY
 // ==================================================
 
