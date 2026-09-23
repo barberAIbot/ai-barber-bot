@@ -95,7 +95,13 @@ Odpowiedź powinna być krótka — maksymalnie kilka zdań.
     throw new Error(JSON.stringify(data));
   }
 
-  return data.output?.[0]?.content?.[0]?.text;
+  const aiText = data.output
+  ?.find(item => item.type === "message")
+  ?.content
+  ?.find(item => item.type === "output_text")
+  ?.text;
+
+return aiText;
 }
 
 
@@ -152,12 +158,17 @@ app.post("/webhook", async (req, res) => {
 
       const aiResponse = await askAI(messageText);
 
-      console.log(`Odpowiedź AI: ${aiResponse}`);
+console.log(`Odpowiedź AI: ${aiResponse}`);
 
-      await sendInstagramMessage(
-        senderId,
-        aiResponse
-      );
+if (!aiResponse || !aiResponse.trim()) {
+  console.log("Brak odpowiedzi AI — pomijam wysyłanie.");
+  return res.sendStatus(200);
+}
+
+await sendInstagramMessage(
+  senderId,
+  aiResponse
+);
     }
 
     res.sendStatus(200);
