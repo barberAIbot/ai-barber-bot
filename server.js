@@ -166,26 +166,26 @@ return aiText;
 
 async function sendInstagramMessage(recipientId, text) {
   const response = await fetch(
-    `https://graph.instagram.com/v23.0/${INSTAGRAM_USER_ID}/messages`,
-    {
-      method: "POST",
+  `https://graph.instagram.com/v23.0/${INSTAGRAM_USER_ID}/messages`,
+  {
+    method: "POST",
 
-      headers: {
-        "Authorization": `Bearer ${INSTAGRAM_ACCESS_TOKEN}`,
-        "Content-Type": "application/json"
+    headers: {
+      "Authorization": `Bearer ${INSTAGRAM_ACCESS_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+
+    body: JSON.stringify({
+      recipient: {
+        id: recipientId
       },
 
-      body: JSON.stringify({
-        recipient: {
-          id: recipientId
-        },
-
-        message: {
-          text: text
-        }
-      })
-    }
-  );
+      message: {
+        text: text
+      }
+    })
+  }
+);
 
   const data = await response.json();
 
