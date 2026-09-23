@@ -516,12 +516,47 @@ ${SALON.bookingUrl}
 // ==================================================
 
 async function askAI(
-  instagramUserId,
+  barberInstagramId,
+  clientInstagramId,
   userMessage
 ) {
 
-  const salonInformation =
-    createSalonInformation();
+  const barber =
+  await getBarberByInstagramId(barberInstagramId);
+
+if (!barber) {
+  console.log(
+    `Nie znaleziono barbera dla Instagram ID: ${instagramUserId}`
+  );
+  return null;
+}
+
+const salonInformation = `
+INFORMACJE O SALONIE
+
+Nazwa:
+${barber.name}
+
+Adres:
+${barber.address}
+
+GODZINY OTWARCIA
+
+${barber.openingHours
+  .map(day => `${day.day}: ${day.hours}`)
+  .join("\n")}
+
+USŁUGI I CENY
+
+${barber.services
+  .map(service => `${service.name}: ${service.price} zł`)
+  .join("\n")}
+
+REZERWACJA
+
+Link do rezerwacji:
+${barber.bookingUrl}
+`;
 
 
   // Pobieramy poprzednią historię.
@@ -900,20 +935,22 @@ app.post(
 
 
       const senderId =
-        messaging?.sender?.id;
+  messaging?.sender?.id;
 
+const recipientId =
+  messaging?.recipient?.id;
 
-      const messageText =
-        messaging?.message?.text;
-
+const messageText =
+  messaging?.message?.text;
 
       // Ignorujemy webhooki,
       // które nie są wiadomością tekstową.
 
       if (
-        !senderId ||
-        !messageText
-      ) {
+  !senderId ||
+  !recipientId ||
+  !messageText
+) {
 
         console.log(
           "Webhook nie zawiera wiadomości tekstowej."
@@ -931,10 +968,11 @@ app.post(
       // AI + PostgreSQL
 
       const aiResponse =
-        await askAI(
-          senderId,
-          messageText
-        );
+  await askAI(
+    recipientId,
+    senderId,
+    messageText
+  );
 
 
       if (
