@@ -1011,6 +1011,28 @@ const recipientId =
 const messageText =
   messaging?.message?.text;
 
+const isEcho =
+  messaging?.message?.is_echo === true;
+
+if (isEcho) {
+  console.log(
+    "Webhook jest echo naszej wiadomości. Ignoruję."
+  );
+  return res.sendStatus(200);
+}
+
+if (
+  !senderId ||
+  !recipientId ||
+  !messageText
+) {
+  console.log(
+    "Webhook nie zawiera wiadomości tekstowej."
+  );
+
+  return res.sendStatus(200);
+}
+
       // Ignorujemy webhooki,
       // które nie są wiadomością tekstową.
 
