@@ -137,6 +137,10 @@ app.get("/privacy", (req, res) => {
 
 async function initializeDatabase() {
 
+  // ==================================================
+  // ROZMOWY - OBECNA TABELA
+  // ==================================================
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS conversation_messages (
       id SERIAL PRIMARY KEY,
@@ -152,9 +156,171 @@ async function initializeDatabase() {
     ON conversation_messages(instagram_user_id, created_at)
   `);
 
-  console.log("PostgreSQL: baza gotowa.");
-}
 
+  // ==================================================
+  // BARBERZY
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS barbers (
+      id SERIAL PRIMARY KEY,
+      instagram_user_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      address TEXT,
+      booking_url TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+
+  // ==================================================
+  // USŁUGI
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      price NUMERIC(10,2) NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(barber_id, name)
+    )
+  `);
+
+
+  // ==================================================
+  // GODZINY OTWARCIA
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS opening_hours (
+      id SERIAL PRIMARY KEY,
+      barber_id INTEGER NOT NULL REFERENCES barbers(id) ON DELETE CASCADE,
+      day TEXT NOT NULL,
+      hours TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(barber_id, day)
+    )
+  `);
+
+
+  // ==================================================
+  // TESTOWY BARBER
+  // ==================================================
+
+  const barberResult = await pool.query(
+    `
+      INSERT INTO barbers
+      (
+        instagram_user_id,
+        name,
+        address,
+        booking_url
+      )
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (instagram_user_id)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        address = EXCLUDED.address,
+        booking_url = EXCLUDED.booking_url
+      RETURNING id
+    `,
+    [
+      INSTAGRAM_USER_ID,
+      "Barber Whisky Shop Dębica",
+      "ul. Kolejowa 18, 39-200 Dębica",
+      "https://booksy.com/pl-pl/316593_barber-whisky-shop-debica_barber-shop_11501_debica#ba_s=sh_1"
+    ]
+  );
+
+  const barberId = barberResult.rows[0].id;
+
+
+  // ==================================================
+  // USŁUGI TESTOWEGO BARBERA
+  // ==================================================
+
+  const services = [
+    ["Strzyżenie", 70],
+    ["Broda", 50],
+    ["Strzyżenie + broda", 110],
+    ["Strzyżenie maszynką", 50],
+    ["Skin fade", 80],
+    ["Trymowanie brody", 50],
+    ["Golenie królewskie", 60],
+    ["Cover siwizny", 50],
+    ["Depilacja nosa i uszu", 20],
+    ["Mycie + stylizacja", 20]
+  ];
+
+  for (const [name, price] of services) {
+
+    await pool.query(
+      `
+        INSERT INTO services
+        (
+          barber_id,
+          name,
+          price
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (barber_id, name)
+        DO UPDATE SET
+          price = EXCLUDED.price
+      `,
+      [
+        barberId,
+        name,
+        price
+      ]
+    );
+  }
+
+
+  // ==================================================
+  // GODZINY TESTOWEGO BARBERA
+  // ==================================================
+
+  const openingHours = [
+    ["Poniedziałek", "9:00–19:00"],
+    ["Wtorek", "9:00–19:00"],
+    ["Środa", "9:00–19:00"],
+    ["Czwartek", "9:00–19:00"],
+    ["Piątek", "9:00–19:00"],
+    ["Sobota", "9:00–15:00"],
+    ["Niedziela", "zamknięte"]
+  ];
+
+  for (const [day, hours] of openingHours) {
+
+    await pool.query(
+      `
+        INSERT INTO opening_hours
+        (
+          barber_id,
+          day,
+          hours
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT (barber_id, day)
+        DO UPDATE SET
+          hours = EXCLUDED.hours
+      `,
+      [
+        barberId,
+        day,
+        hours
+      ]
+    );
+  }
+
+
+  console.log("PostgreSQL: baza gotowa.");
+  console.log(
+    `Barber testowy ID: ${barberId}`
+  );
+}
 
 // ==================================================
 // HISTORIA ROZMOWY
