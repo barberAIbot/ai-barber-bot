@@ -95,7 +95,7 @@ Odpowiedź powinna być krótka — maksymalnie kilka zdań.
     throw new Error(JSON.stringify(data));
   }
 
-  return data.output_text;
+  return data.output?.[0]?.content?.[0]?.text;
 }
 
 
