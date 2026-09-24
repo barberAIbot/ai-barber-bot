@@ -2794,23 +2794,12 @@ function getHumanHandoffMessage() {
 // ==================================================
 
 async function askAI(
-  barberId,
-  instagramUserId,
+  barber,
+  clientInstagramId,
   userMessage
 ) {
 
-  const barber =
-    await getBarberByInstagramId(
-      instagramUserId
-    );
-
-
-  if (!barber) {
-
-    throw new Error(
-      "Nie znaleziono barbera."
-    );
-  }
+  
 
 
   // ==================================================
@@ -2818,10 +2807,10 @@ async function askAI(
   // ==================================================
 
   const history =
-    await getConversationHistory(
-      barberId,
-      instagramUserId
-    );
+  await getConversationHistory(
+    barber.id,
+    clientInstagramId
+  );
 
 
   // ==================================================
@@ -2829,11 +2818,11 @@ async function askAI(
   // ==================================================
 
   await saveMessage(
-    barberId,
-    instagramUserId,
-    "user",
-    userMessage
-  );
+  barber.id,
+  clientInstagramId,
+  "user",
+  userMessage
+);
 
 
   // ==================================================
@@ -3038,11 +3027,11 @@ informacje dotyczące konkretnego barbera.
   // ==================================================
 
   await saveMessage(
-    barberId,
-    instagramUserId,
-    "assistant",
-    aiMessage
-  );
+  barber.id,
+  clientInstagramId,
+  "assistant",
+  aiMessage
+);
 
 
   return aiMessage;
@@ -3480,11 +3469,11 @@ app.post(
           try {
 
             const aiResponse =
-              await askAI(
-                barber.id,
-                senderId,
-                messageText
-              );
+  await askAI(
+    barber,
+    senderId,
+    messageText
+  );
 
 
             if (
