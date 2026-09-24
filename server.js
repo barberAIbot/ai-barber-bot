@@ -3010,17 +3010,78 @@ informacje dotyczące konkretnego barbera.
     await response.json();
 
 
-  const aiMessage =
-    data.output_text?.trim();
+  let aiMessage = "";
+
+if (
+  typeof data.output_text === "string"
+) {
+  aiMessage =
+    data.output_text.trim();
+}
 
 
-  if (!aiMessage) {
+if (
+  !aiMessage &&
+  Array.isArray(data.output)
+) {
 
-    throw new Error(
-      "OpenAI nie zwróciło tekstowej odpowiedzi."
-    );
+  for (
+    const outputItem
+    of data.output
+  ) {
+
+    if (
+      !Array.isArray(
+        outputItem.content
+      )
+    ) {
+      continue;
+    }
+
+
+    for (
+      const contentItem
+      of outputItem.content
+    ) {
+
+      if (
+        contentItem.type ===
+          "output_text"
+        &&
+        typeof contentItem.text ===
+          "string"
+      ) {
+
+        aiMessage +=
+          contentItem.text;
+      }
+    }
   }
 
+
+  aiMessage =
+    aiMessage.trim();
+}
+
+
+if (!aiMessage) {
+
+  console.error(
+    "OpenAI zwróciło odpowiedź bez tekstu:"
+  );
+
+  console.error(
+    JSON.stringify(
+      data,
+      null,
+      2
+    )
+  );
+
+  throw new Error(
+    "OpenAI nie zwróciło tekstowej odpowiedzi."
+  );
+}
 
   // ==================================================
   // ZAPIS ODPOWIEDZI AI
