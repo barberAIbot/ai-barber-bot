@@ -360,18 +360,11 @@ app.get(
             </h2>
 
             <p>
-  <strong>Barber ID:</strong>
-  ${escapeHtml(
-    barber.id
-  )}
-</p>
-
-<p>
-  <strong>Instagram ID:</strong>
-  ${escapeHtml(
-    barber.instagram_user_id
-  )}
-</p>
+              <strong>Instagram ID:</strong>
+              ${escapeHtml(
+                barber.instagram_user_id
+              )}
+            </p>
 
             <p>
               <strong>Adres:</strong>
@@ -392,6 +385,13 @@ app.get(
               href="/admin/barbers/${barber.id}"
             >
               Edytuj
+            </a>
+
+            <a
+              class="button"
+              href="/admin/barbers/${barber.id}/conversations"
+            >
+              🤖 Rozmowy / AI
             </a>
 
             <form
@@ -463,31 +463,54 @@ app.get(
 
           body {
             font-family: Arial, sans-serif;
-            max-width: 900px;
+            max-width: 800px;
             margin: 40px auto;
             padding: 20px;
+            background: #f5f5f5;
+          }
+
+          form {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+          }
+
+          label {
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            font-weight: bold;
           }
 
           input,
           textarea {
             width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            margin-bottom: 15px;
             box-sizing: border-box;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
           }
 
-          label {
-            font-weight: bold;
+          textarea {
+            min-height: 120px;
+            resize: vertical;
           }
 
           button {
-            padding: 12px 20px;
+            margin-top: 20px;
+            padding: 12px 18px;
             background: #111;
             color: white;
             border: none;
             border-radius: 6px;
             cursor: pointer;
+          }
+
+          .back {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #111;
           }
 
           .hint {
@@ -501,8 +524,15 @@ app.get(
 
       <body>
 
+        <a
+          class="back"
+          href="/admin"
+        >
+          ← Wróć do panelu
+        </a>
+
         <h1>
-          + Dodaj barbera
+          Dodaj barbera
         </h1>
 
         <form
@@ -515,56 +545,51 @@ app.get(
           </label>
 
           <input
+            type="text"
             name="name"
             required
           >
-
 
           <label>
             Instagram User ID
           </label>
 
           <input
+            type="text"
             name="instagram_user_id"
             required
           >
 
           <p class="hint">
-            ID konta Instagram, które będzie odbierało wiadomości.
+            ID profesjonalnego konta Instagram.
           </p>
-
 
           <label>
             Adres
           </label>
 
           <input
+            type="text"
             name="address"
           >
-
 
           <label>
             Link do rezerwacji
           </label>
 
           <input
+            type="text"
             name="booking_url"
           >
-
 
           <label>
             Instagram Access Token
           </label>
 
           <input
-            name="access_token"
             type="password"
+            name="access_token"
           >
-
-          <p class="hint">
-            Token tego konkretnego konta Instagram.
-          </p>
-
 
           <label>
             Usługi
@@ -572,10 +597,7 @@ app.get(
 
           <textarea
             name="services"
-            rows="10"
-            placeholder="Strzyżenie|70
-Broda|50
-Strzyżenie + broda|110"
+            placeholder="Strzyżenie|70&#10;Broda|50&#10;Strzyżenie + broda|110"
           ></textarea>
 
           <p class="hint">
@@ -583,45 +605,897 @@ Strzyżenie + broda|110"
             Format: Nazwa|Cena
           </p>
 
-
           <label>
             Godziny otwarcia
           </label>
 
           <textarea
             name="opening_hours"
-            rows="8"
-            placeholder="Poniedziałek|9:00–19:00
-Wtorek|9:00–19:00
-Środa|9:00–19:00
-Czwartek|9:00–19:00
-Piątek|9:00–19:00
-Sobota|9:00–15:00
-Niedziela|zamknięte"
+            placeholder="Poniedziałek|09:00-18:00&#10;Wtorek|09:00-18:00"
           ></textarea>
 
           <p class="hint">
-            Jedna linia:
-            Dzień|Godziny
+            Jedna linia na każdy dzień.
+            Format: Dzień|Godziny
           </p>
 
-
-          <button type="submit">
+          <button
+            type="submit"
+          >
             Dodaj barbera
           </button>
 
         </form>
 
-        <br>
-
-        <a href="/admin">
-          ← Wróć
-        </a>
-
       </body>
 
       </html>
     `);
+  }
+);
+// ==================================================
+// ADMIN - ROZMOWY I STEROWANIE AI
+// ==================================================
+
+app.get(
+  "/admin/barbers/:barberId/conversations",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const barberId =
+        Number(req.params.barberId);
+
+      if (!Number.isInteger(barberId)) {
+        return res.status(400).send(
+          "Nieprawidłowe ID barbera."
+        );
+      }
+
+      const barberResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              name,
+              instagram_user_id
+            FROM barbers
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [barberId]
+        );
+
+      if (
+        barberResult.rows.length === 0
+      ) {
+        return res.status(404).send(
+          "Nie znaleziono barbera."
+        );
+      }
+
+      const barber =
+        barberResult.rows[0];
+
+      const conversationsResult =
+        await pool.query(
+          `
+            SELECT
+              c.instagram_user_id,
+              c.ai_active,
+              c.updated_at,
+
+              (
+                SELECT cm.message
+                FROM conversation_messages cm
+                WHERE cm.barber_id = c.barber_id
+                  AND cm.instagram_user_id =
+                    c.instagram_user_id
+                ORDER BY
+                  cm.created_at DESC,
+                  cm.id DESC
+                LIMIT 1
+              ) AS last_message,
+
+              (
+                SELECT cm.role
+                FROM conversation_messages cm
+                WHERE cm.barber_id = c.barber_id
+                  AND cm.instagram_user_id =
+                    c.instagram_user_id
+                ORDER BY
+                  cm.created_at DESC,
+                  cm.id DESC
+                LIMIT 1
+              ) AS last_role
+
+            FROM conversations c
+
+            WHERE c.barber_id = $1
+
+            ORDER BY
+              c.updated_at DESC
+          `,
+          [barberId]
+        );
+
+      let html = `
+        <!DOCTYPE html>
+
+        <html>
+
+        <head>
+
+          <meta charset="UTF-8">
+
+          <title>
+            Rozmowy - ${escapeHtml(barber.name)}
+          </title>
+
+          <style>
+
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 1100px;
+              margin: 40px auto;
+              padding: 20px;
+              background: #f5f5f5;
+            }
+
+            .top {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 15px;
+              margin-bottom: 25px;
+              flex-wrap: wrap;
+            }
+
+            .conversation {
+              background: white;
+              padding: 20px;
+              margin-bottom: 15px;
+              border-radius: 10px;
+              border: 1px solid #ddd;
+            }
+
+            .button {
+              display: inline-block;
+              padding: 10px 15px;
+              background: #111;
+              color: white;
+              text-decoration: none;
+              border-radius: 6px;
+              border: none;
+              cursor: pointer;
+            }
+
+            .on {
+              color: #087f23;
+              font-weight: bold;
+            }
+
+            .off {
+              color: #b00020;
+              font-weight: bold;
+            }
+
+            .muted {
+              color: #666;
+            }
+
+            .last-message {
+              margin: 12px 0;
+              padding: 12px;
+              background: #f7f7f7;
+              border-radius: 7px;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+
+            .controls {
+              display: flex;
+              gap: 8px;
+              flex-wrap: wrap;
+              align-items: center;
+            }
+
+            .green {
+              background: #087f23;
+            }
+
+            .red {
+              background: #b00020;
+            }
+
+          </style>
+
+        </head>
+
+        <body>
+
+          <div class="top">
+
+            <div>
+
+              <h1>
+                💬 Rozmowy
+              </h1>
+
+              <p>
+                <strong>
+                  ${escapeHtml(barber.name)}
+                </strong>
+              </p>
+
+              <p class="muted">
+                Instagram ID barbera:
+                ${escapeHtml(
+                  barber.instagram_user_id
+                )}
+              </p>
+
+            </div>
+
+            <a
+              class="button"
+              href="/admin"
+            >
+              ← Wróć do barberów
+            </a>
+
+          </div>
+      `;
+
+
+      if (
+        conversationsResult.rows.length === 0
+      ) {
+
+        html += `
+          <div class="conversation">
+            Brak rozmów dla tego barbera.
+          </div>
+        `;
+
+      }
+
+
+      for (
+        const conversation
+        of conversationsResult.rows
+      ) {
+
+        const lastMessage =
+          conversation.last_message ||
+          "Brak wiadomości.";
+
+        const lastMessageRole =
+          conversation.last_role === "user"
+            ? "Klient"
+            : conversation.last_role === "assistant"
+              ? "AI"
+              : "-";
+
+        const aiActive =
+          conversation.ai_active === true;
+
+
+        html += `
+          <div class="conversation">
+
+            <h2>
+              Klient:
+              ${escapeHtml(
+                conversation.instagram_user_id
+              )}
+            </h2>
+
+            <p>
+
+              <strong>
+                AI:
+              </strong>
+
+              <span
+                class="${aiActive ? "on" : "off"}"
+              >
+                ${
+                  aiActive
+                    ? "🟢 WŁĄCZONE"
+                    : "🔴 WYŁĄCZONE"
+                }
+              </span>
+
+            </p>
+
+            <div class="last-message">
+
+              <strong>
+                ${lastMessageRole}:
+              </strong>
+
+              <br>
+
+              ${escapeHtml(lastMessage)}
+
+            </div>
+
+            <div class="controls">
+
+              <a
+                class="button"
+                href="/admin/barbers/${barber.id}/conversations/${encodeURIComponent(
+                  conversation.instagram_user_id
+                )}"
+              >
+                Otwórz rozmowę
+              </a>
+
+              <form
+                method="POST"
+                action="/admin/barbers/${barber.id}/conversations/${encodeURIComponent(
+                  conversation.instagram_user_id
+                )}/ai-on"
+                style="display:inline"
+              >
+
+                <button
+                  class="button green"
+                  type="submit"
+                >
+                  Włącz AI
+                </button>
+
+              </form>
+
+              <form
+                method="POST"
+                action="/admin/barbers/${barber.id}/conversations/${encodeURIComponent(
+                  conversation.instagram_user_id
+                )}/ai-off"
+                style="display:inline"
+              >
+
+                <button
+                  class="button red"
+                  type="submit"
+                >
+                  Wyłącz AI
+                </button>
+
+              </form>
+
+            </div>
+
+          </div>
+        `;
+      }
+
+
+      html += `
+        </body>
+        </html>
+      `;
+
+      res.send(html);
+
+    } catch (error) {
+
+      console.error(
+        "Błąd panelu rozmów:",
+        error
+      );
+
+      res.status(500).send(
+        "Błąd serwera."
+      );
+    }
+  }
+);
+
+
+// ==================================================
+// ADMIN - POJEDYNCZA ROZMOWA
+// ==================================================
+
+app.get(
+  "/admin/barbers/:barberId/conversations/:instagramUserId",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const barberId =
+        Number(req.params.barberId);
+
+      const instagramUserId =
+        req.params.instagramUserId;
+
+
+      if (
+        !Number.isInteger(barberId) ||
+        !instagramUserId
+      ) {
+
+        return res.status(400).send(
+          "Nieprawidłowe dane rozmowy."
+        );
+      }
+
+
+      const barberResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              name
+            FROM barbers
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [barberId]
+        );
+
+
+      if (
+        barberResult.rows.length === 0
+      ) {
+
+        return res.status(404).send(
+          "Nie znaleziono barbera."
+        );
+      }
+
+
+      const conversationResult =
+        await pool.query(
+          `
+            SELECT
+              ai_active
+            FROM conversations
+            WHERE barber_id = $1
+              AND instagram_user_id = $2
+            LIMIT 1
+          `,
+          [
+            barberId,
+            instagramUserId
+          ]
+        );
+
+
+      const aiActive =
+        conversationResult.rows.length > 0 &&
+        conversationResult.rows[0].ai_active === true;
+
+
+      const messagesResult =
+        await pool.query(
+          `
+            SELECT
+              role,
+              message,
+              created_at
+            FROM conversation_messages
+            WHERE barber_id = $1
+              AND instagram_user_id = $2
+            ORDER BY
+              created_at ASC,
+              id ASC
+          `,
+          [
+            barberId,
+            instagramUserId
+          ]
+        );
+
+
+      const barber =
+        barberResult.rows[0];
+
+
+      let html = `
+        <!DOCTYPE html>
+
+        <html>
+
+        <head>
+
+          <meta charset="UTF-8">
+
+          <title>
+            Rozmowa -
+            ${escapeHtml(instagramUserId)}
+          </title>
+
+          <style>
+
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 900px;
+              margin: 40px auto;
+              padding: 20px;
+              background: #f5f5f5;
+            }
+
+            .top {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              gap: 15px;
+              flex-wrap: wrap;
+              margin-bottom: 20px;
+            }
+
+            .message {
+              padding: 12px 15px;
+              border-radius: 10px;
+              margin-bottom: 10px;
+              white-space: pre-wrap;
+              word-break: break-word;
+            }
+
+            .user {
+              background: #e9f2ff;
+            }
+
+            .assistant {
+              background: #e9f8ed;
+            }
+
+            .meta {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 5px;
+            }
+
+            .button {
+              display: inline-block;
+              padding: 10px 15px;
+              background: #111;
+              color: white;
+              text-decoration: none;
+              border-radius: 6px;
+              border: none;
+              cursor: pointer;
+            }
+
+            .green {
+              background: #087f23;
+            }
+
+            .red {
+              background: #b00020;
+            }
+
+            .status {
+              background: white;
+              padding: 15px;
+              border-radius: 10px;
+              border: 1px solid #ddd;
+              margin-bottom: 20px;
+            }
+
+            .on {
+              color: #087f23;
+              font-weight: bold;
+            }
+
+            .off {
+              color: #b00020;
+              font-weight: bold;
+            }
+
+            .empty {
+              background: white;
+              padding: 20px;
+              border-radius: 10px;
+            }
+
+          </style>
+
+        </head>
+
+        <body>
+
+          <div class="top">
+
+            <div>
+
+              <h1>
+                💬 Rozmowa
+              </h1>
+
+              <p>
+                <strong>
+                  Barber:
+                </strong>
+
+                ${escapeHtml(barber.name)}
+              </p>
+
+              <p>
+                <strong>
+                  Klient Instagram ID:
+                </strong>
+
+                ${escapeHtml(
+                  instagramUserId
+                )}
+              </p>
+
+            </div>
+
+            <a
+              class="button"
+              href="/admin/barbers/${barberId}/conversations"
+            >
+              ← Wróć do rozmów
+            </a>
+
+          </div>
+
+
+          <div class="status">
+
+            <strong>
+              Status AI:
+            </strong>
+
+            <span
+              class="${aiActive ? "on" : "off"}"
+            >
+              ${
+                aiActive
+                  ? "🟢 WŁĄCZONE"
+                  : "🔴 WYŁĄCZONE"
+              }
+            </span>
+
+
+            <div style="margin-top: 12px;">
+
+              ${
+                aiActive
+
+                  ? `
+                    <form
+                      method="POST"
+                      action="/admin/barbers/${barberId}/conversations/${encodeURIComponent(
+                        instagramUserId
+                      )}/ai-off"
+                      style="display:inline"
+                    >
+
+                      <button
+                        class="button red"
+                        type="submit"
+                      >
+                        Wyłącz AI i przejmij rozmowę
+                      </button>
+
+                    </form>
+                  `
+
+                  : `
+                    <form
+                      method="POST"
+                      action="/admin/barbers/${barberId}/conversations/${encodeURIComponent(
+                        instagramUserId
+                      )}/ai-on"
+                      style="display:inline"
+                    >
+
+                      <button
+                        class="button green"
+                        type="submit"
+                      >
+                        Włącz AI
+                      </button>
+
+                    </form>
+                  `
+              }
+
+            </div>
+
+          </div>
+      `;
+
+
+      if (
+        messagesResult.rows.length === 0
+      ) {
+
+        html += `
+          <div class="empty">
+            Brak wiadomości w tej rozmowie.
+          </div>
+        `;
+
+      }
+
+
+      for (
+        const message
+        of messagesResult.rows
+      ) {
+
+        const roleName =
+          message.role === "user"
+            ? "Klient"
+            : message.role === "assistant"
+              ? "AI"
+              : message.role;
+
+
+        const timestamp =
+          message.created_at
+            ? new Date(
+                message.created_at
+              ).toLocaleString("pl-PL")
+            : "";
+
+
+        html += `
+          <div
+            class="message ${
+              message.role === "user"
+                ? "user"
+                : "assistant"
+            }"
+          >
+
+            <div class="meta">
+
+              <strong>
+                ${escapeHtml(roleName)}
+              </strong>
+
+              ${escapeHtml(timestamp)}
+
+            </div>
+
+            ${escapeHtml(
+              message.message
+            )}
+
+          </div>
+        `;
+      }
+
+
+      html += `
+        </body>
+        </html>
+      `;
+
+
+      res.send(html);
+
+    } catch (error) {
+
+      console.error(
+        "Błąd widoku rozmowy:",
+        error
+      );
+
+      res.status(500).send(
+        "Błąd serwera."
+      );
+    }
+  }
+);
+
+
+// ==================================================
+// ADMIN - WŁĄCZANIE AI Z PANELU
+// ==================================================
+
+app.post(
+  "/admin/barbers/:barberId/conversations/:instagramUserId/ai-on",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const barberId =
+        Number(req.params.barberId);
+
+      const instagramUserId =
+        req.params.instagramUserId;
+
+
+      if (
+        !Number.isInteger(barberId) ||
+        !instagramUserId
+      ) {
+
+        return res.status(400).send(
+          "Nieprawidłowe dane rozmowy."
+        );
+      }
+
+
+      await setConversationAI(
+        barberId,
+        instagramUserId,
+        true
+      );
+
+
+      res.redirect(
+        `/admin/barbers/${barberId}/conversations`
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Błąd włączania AI z panelu:",
+        error
+      );
+
+      res.status(500).send(
+        "Błąd podczas włączania AI."
+      );
+    }
+  }
+);
+
+
+// ==================================================
+// ADMIN - WYŁĄCZANIE AI Z PANELU
+// ==================================================
+
+app.post(
+  "/admin/barbers/:barberId/conversations/:instagramUserId/ai-off",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const barberId =
+        Number(req.params.barberId);
+
+      const instagramUserId =
+        req.params.instagramUserId;
+
+
+      if (
+        !Number.isInteger(barberId) ||
+        !instagramUserId
+      ) {
+
+        return res.status(400).send(
+          "Nieprawidłowe dane rozmowy."
+        );
+      }
+
+
+      await setConversationAI(
+        barberId,
+        instagramUserId,
+        false
+      );
+
+
+      res.redirect(
+        `/admin/barbers/${barberId}/conversations`
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Błąd wyłączania AI z panelu:",
+        error
+      );
+
+      res.status(500).send(
+        "Błąd podczas wyłączania AI."
+      );
+    }
   }
 );
 
@@ -645,6 +1519,7 @@ app.post(
       opening_hours
     } = req.body;
 
+console.log("DANE Z FORMULARZA:", req.body);
     if (
       !name ||
       !instagram_user_id
@@ -662,7 +1537,9 @@ app.post(
 
     try {
 
-      await client.query("BEGIN");
+      await client.query(
+        "BEGIN"
+      );
 
 
       const barberResult =
@@ -710,20 +1587,28 @@ app.post(
       );
 
 
-      await client.query("COMMIT");
+      await client.query(
+        "COMMIT"
+      );
 
 
-      res.redirect("/admin");
+      res.redirect(
+        "/admin"
+      );
 
 
     } catch (error) {
 
-      await client.query("ROLLBACK");
+      await client.query(
+        "ROLLBACK"
+      );
+
 
       console.error(
         "Błąd dodawania barbera:",
         error
       );
+
 
       if (
         error.code === "23505"
@@ -733,6 +1618,7 @@ app.post(
           "Ten Instagram User ID już istnieje w bazie."
         );
       }
+
 
       res.status(500).send(
         "Nie udało się dodać barbera."
@@ -746,455 +1632,6 @@ app.post(
     }
   }
 );
-
-
-// ==================================================
-// ADMIN - EDYCJA BARBERA
-// ==================================================
-
-app.get(
-  "/admin/barbers/:id",
-  requireAdmin,
-  async (req, res) => {
-
-    const barberId =
-      Number(req.params.id);
-
-    if (!Number.isInteger(barberId)) {
-
-      return res.status(400).send(
-        "Nieprawidłowe ID barbera."
-      );
-    }
-
-
-    try {
-
-      const barberResult =
-        await pool.query(
-          `
-            SELECT
-              id,
-              name,
-              instagram_user_id,
-              address,
-              booking_url,
-              access_token
-            FROM barbers
-            WHERE id = $1
-          `,
-          [barberId]
-        );
-
-
-      if (
-        barberResult.rows.length === 0
-      ) {
-
-        return res.status(404).send(
-          "Nie znaleziono barbera."
-        );
-      }
-
-
-      const barber =
-        barberResult.rows[0];
-
-
-      const servicesResult =
-        await pool.query(
-          `
-            SELECT
-              name,
-              price
-            FROM services
-            WHERE barber_id = $1
-            ORDER BY id ASC
-          `,
-          [barberId]
-        );
-
-
-      const hoursResult =
-        await pool.query(
-          `
-            SELECT
-              day,
-              hours
-            FROM opening_hours
-            WHERE barber_id = $1
-            ORDER BY id ASC
-          `,
-          [barberId]
-        );
-
-
-      const servicesText =
-        servicesResult.rows
-          .map(
-            service =>
-              `${service.name}|${service.price}`
-          )
-          .join("\n");
-
-
-      const hoursText =
-        hoursResult.rows
-          .map(
-            row =>
-              `${row.day}|${row.hours}`
-          )
-          .join("\n");
-
-
-      res.send(`
-        <!DOCTYPE html>
-
-        <html>
-
-        <head>
-
-          <meta charset="UTF-8">
-
-          <title>
-            Edytuj barbera
-          </title>
-
-          <style>
-
-            body {
-              font-family: Arial, sans-serif;
-              max-width: 900px;
-              margin: 40px auto;
-              padding: 20px;
-            }
-
-            input,
-            textarea {
-              width: 100%;
-              padding: 10px;
-              margin-top: 5px;
-              margin-bottom: 15px;
-              box-sizing: border-box;
-            }
-
-            label {
-              font-weight: bold;
-            }
-
-            button {
-              padding: 12px 20px;
-              background: #111;
-              color: white;
-              border: none;
-              border-radius: 6px;
-              cursor: pointer;
-            }
-
-            .danger {
-              background: #b00020;
-            }
-
-            .hint {
-              color: #666;
-              font-size: 14px;
-            }
-
-          </style>
-
-        </head>
-
-        <body>
-          <h1>
-            Edytuj: ${escapeHtml(barber.name)}
-          </h1>
-
-          <form
-            method="POST"
-            action="/admin/barbers/${barber.id}"
-          >
-
-            <label>
-              Nazwa
-            </label>
-
-            <input
-              name="name"
-              value="${escapeHtml(barber.name)}"
-              required
-            >
-
-
-            <label>
-              Instagram User ID
-            </label>
-
-            <input
-              name="instagram_user_id"
-              value="${escapeHtml(
-                barber.instagram_user_id
-              )}"
-              required
-            >
-
-
-            <label>
-              Adres
-            </label>
-
-            <input
-              name="address"
-              value="${escapeHtml(
-                barber.address || ""
-              )}"
-            >
-
-
-            <label>
-              Link do rezerwacji
-            </label>
-
-            <input
-              name="booking_url"
-              value="${escapeHtml(
-                barber.booking_url || ""
-              )}"
-            >
-
-
-            <label>
-              Instagram Access Token
-            </label>
-
-            <input
-              name="access_token"
-              type="password"
-              value="${escapeHtml(
-                barber.access_token || ""
-              )}"
-            >
-
-            <p class="hint">
-              Token jest przechowywany dla tego barbera.
-            </p>
-
-
-            <label>
-              Usługi
-            </label>
-
-            <textarea
-              name="services"
-              rows="12"
-            >${escapeHtml(servicesText)}</textarea>
-
-            <p class="hint">
-              Format:
-              Nazwa|Cena
-            </p>
-
-
-            <label>
-              Godziny otwarcia
-            </label>
-
-            <textarea
-              name="opening_hours"
-              rows="10"
-            >${escapeHtml(hoursText)}</textarea>
-
-            <p class="hint">
-              Format:
-              Dzień|Godziny
-            </p>
-
-
-            <button type="submit">
-              Zapisz zmiany
-            </button>
-
-          </form>
-
-          <br>
-
-          <form
-            method="POST"
-            action="/admin/barbers/${barber.id}/delete"
-            onsubmit="return confirm('Na pewno usunąć tego barbera?')"
-          >
-
-            <button
-              class="danger"
-              type="submit"
-            >
-              Usuń barbera
-            </button>
-
-          </form>
-
-          <br>
-
-          <a href="/admin">
-            ← Wróć do listy
-          </a>
-
-        </body>
-
-        </html>
-      `);
-
-
-    } catch (error) {
-
-      console.error(
-        "Błąd edycji barbera:",
-        error
-      );
-
-      res.status(500).send(
-        "Błąd serwera."
-      );
-    }
-  }
-);
-
-
-// ==================================================
-// ADMIN - AKTUALIZACJA BARBERA
-// ==================================================
-
-app.post(
-  "/admin/barbers/:id",
-  requireAdmin,
-  async (req, res) => {
-
-    const barberId =
-      Number(req.params.id);
-
-    if (!Number.isInteger(barberId)) {
-
-      return res.status(400).send(
-        "Nieprawidłowe ID barbera."
-      );
-    }
-
-
-    const {
-      name,
-      instagram_user_id,
-      address,
-      booking_url,
-      access_token,
-      services,
-      opening_hours
-    } = req.body;
-
-
-    const client =
-      await pool.connect();
-
-
-    try {
-
-      await client.query("BEGIN");
-
-
-      await client.query(
-        `
-          UPDATE barbers
-
-          SET
-            name = $1,
-            instagram_user_id = $2,
-            address = $3,
-            booking_url = $4,
-            access_token = $5
-
-          WHERE id = $6
-        `,
-        [
-          name.trim(),
-          instagram_user_id.trim(),
-          address?.trim() || null,
-          booking_url?.trim() || null,
-          access_token?.trim() || null,
-          barberId
-        ]
-      );
-
-
-      await client.query(
-        `
-          DELETE FROM services
-          WHERE barber_id = $1
-        `,
-        [barberId]
-      );
-
-
-      await client.query(
-        `
-          DELETE FROM opening_hours
-          WHERE barber_id = $1
-        `,
-        [barberId]
-      );
-
-
-      await saveServicesFromText(
-        client,
-        barberId,
-        services
-      );
-
-
-      await saveOpeningHoursFromText(
-        client,
-        barberId,
-        opening_hours
-      );
-
-
-      await client.query("COMMIT");
-
-
-      res.redirect(
-        `/admin/barbers/${barberId}`
-      );
-
-
-    } catch (error) {
-
-      await client.query("ROLLBACK");
-
-      console.error(
-        "Błąd aktualizacji barbera:",
-        error
-      );
-
-      if (
-        error.code === "23505"
-      ) {
-
-        return res.status(400).send(
-          "Ten Instagram User ID już istnieje."
-        );
-      }
-
-      res.status(500).send(
-        "Nie udało się zapisać zmian."
-      );
-
-
-    } finally {
-
-      client.release();
-
-    }
-  }
-);
-
-
 // ==================================================
 // ADMIN - USUWANIE BARBERA
 // ==================================================
@@ -1207,26 +1644,41 @@ app.post(
     const barberId =
       Number(req.params.id);
 
+
     if (!Number.isInteger(barberId)) {
 
       return res.status(400).send(
-        "Nieprawidłowe ID."
+        "Nieprawidłowe ID barbera."
       );
     }
 
 
     try {
 
-      await pool.query(
-        `
-          DELETE FROM barbers
-          WHERE id = $1
-        `,
-        [barberId]
+      const result =
+        await pool.query(
+          `
+            DELETE FROM barbers
+            WHERE id = $1
+            RETURNING id
+          `,
+          [barberId]
+        );
+
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.status(404).send(
+          "Nie znaleziono barbera."
+        );
+      }
+
+
+      res.redirect(
+        "/admin"
       );
-
-
-      res.redirect("/admin");
 
 
     } catch (error) {
@@ -1245,14 +1697,10 @@ app.post(
 
 
 // ==================================================
-// POMOCNICZE - ESCAPE HTML
+// ESCAPE HTML
 // ==================================================
 
 function escapeHtml(value) {
-
-  if (value === null || value === undefined) {
-    return "";
-  }
 
   return String(value)
     .replace(/&/g, "&amp;")
@@ -1264,45 +1712,59 @@ function escapeHtml(value) {
 
 
 // ==================================================
-// POMOCNICZE - USŁUGI
+// ZAPIS USŁUG Z TEKSTU
 // ==================================================
 
 async function saveServicesFromText(
-  db,
+  client,
   barberId,
-  text
+  servicesText
 ) {
 
-  if (!text) {
+  if (!servicesText) {
     return;
   }
 
 
   const lines =
-    String(text)
+    String(servicesText)
       .split("\n")
-      .map(line => line.trim())
+      .map(
+        line => line.trim()
+      )
       .filter(Boolean);
 
 
-  for (const line of lines) {
+  for (
+    const line
+    of lines
+  ) {
 
-    const separator =
+    const separatorIndex =
       line.lastIndexOf("|");
 
-    if (separator === -1) {
+
+    if (
+      separatorIndex === -1
+    ) {
       continue;
     }
 
 
     const name =
       line
-        .substring(0, separator)
+        .substring(
+          0,
+          separatorIndex
+        )
         .trim();
+
 
     const priceText =
       line
-        .substring(separator + 1)
+        .substring(
+          separatorIndex + 1
+        )
         .trim()
         .replace(",", ".");
 
@@ -1319,7 +1781,7 @@ async function saveServicesFromText(
     }
 
 
-    await db.query(
+    await client.query(
       `
         INSERT INTO services
         (
@@ -1330,6 +1792,15 @@ async function saveServicesFromText(
 
         VALUES
         ($1, $2, $3)
+
+        ON CONFLICT
+        (
+          barber_id,
+          name
+        )
+
+        DO UPDATE SET
+          price = EXCLUDED.price
       `,
       [
         barberId,
@@ -1342,45 +1813,59 @@ async function saveServicesFromText(
 
 
 // ==================================================
-// POMOCNICZE - GODZINY
+// ZAPIS GODZIN Z TEKSTU
 // ==================================================
 
 async function saveOpeningHoursFromText(
-  db,
+  client,
   barberId,
-  text
+  hoursText
 ) {
 
-  if (!text) {
+  if (!hoursText) {
     return;
   }
 
 
   const lines =
-    String(text)
+    String(hoursText)
       .split("\n")
-      .map(line => line.trim())
+      .map(
+        line => line.trim()
+      )
       .filter(Boolean);
 
 
-  for (const line of lines) {
+  for (
+    const line
+    of lines
+  ) {
 
-    const separator =
+    const separatorIndex =
       line.indexOf("|");
 
-    if (separator === -1) {
+
+    if (
+      separatorIndex === -1
+    ) {
       continue;
     }
 
 
     const day =
       line
-        .substring(0, separator)
+        .substring(
+          0,
+          separatorIndex
+        )
         .trim();
+
 
     const hours =
       line
-        .substring(separator + 1)
+        .substring(
+          separatorIndex + 1
+        )
         .trim();
 
 
@@ -1392,7 +1877,7 @@ async function saveOpeningHoursFromText(
     }
 
 
-    await db.query(
+    await client.query(
       `
         INSERT INTO opening_hours
         (
@@ -1403,6 +1888,15 @@ async function saveOpeningHoursFromText(
 
         VALUES
         ($1, $2, $3)
+
+        ON CONFLICT
+        (
+          barber_id,
+          day
+        )
+
+        DO UPDATE SET
+          hours = EXCLUDED.hours
       `,
       [
         barberId,
@@ -1485,7 +1979,7 @@ async function initializeDatabase() {
 
 
   // ==================================================
-  // ROZMOWY
+  // ROZMOWY - STARA TABELA WIADOMOŚCI
   // ==================================================
 
   await pool.query(`
@@ -1511,7 +2005,6 @@ async function initializeDatabase() {
 
   // ==================================================
   // NOWA TABELA - ROZMOWY
-  // ==================================================
   //
   // Każdy klient ma osobny status AI
   // dla konkretnego barbera.
@@ -1543,75 +2036,136 @@ async function initializeDatabase() {
 
 
   // ==================================================
-  // TESTOWY BARBER
-  //
-  // Jeżeli baza nie ma jeszcze barberów,
-  // tworzymy obecnego testowego barbera.
+  // JEŚLI TABELA CONVERSATIONS JUŻ ISTNIAŁA
+  // UPEWNIAMY SIĘ, ŻE MA AI_ACTIVE
   // ==================================================
 
-  const barberCount =
+  await pool.query(`
+    ALTER TABLE conversations
+    ADD COLUMN IF NOT EXISTS ai_active
+    BOOLEAN NOT NULL DEFAULT TRUE
+  `);
+
+
+  // ==================================================
+  // UPEWNIAMY SIĘ, ŻE JEST UPDATED_AT
+  // ==================================================
+
+  await pool.query(`
+    ALTER TABLE conversations
+    ADD COLUMN IF NOT EXISTS updated_at
+    TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+
+  // ==================================================
+  // MIGRACJA STARYCH WIADOMOŚCI
+  // ==================================================
+
+  const oldMessages =
     await pool.query(`
-      SELECT COUNT(*)::integer AS count
-      FROM barbers
+      SELECT
+        COUNT(*)::INTEGER AS count
+      FROM conversation_messages
+      WHERE barber_id IS NULL
     `);
 
 
-  let testBarber;
+  console.log(
+    "Wiadomości bez barber_id:",
+    oldMessages.rows[0].count
+  );
+
+
+  // ==================================================
+  // SPRAWDZAMY CZY ISTNIEJE TESTOWY BARBER
+  // ==================================================
+
+  let testBarber = null;
+
+
+  const existingTestBarber =
+    await pool.query(
+      `
+        SELECT id
+        FROM barbers
+        WHERE instagram_user_id = $1
+        LIMIT 1
+      `,
+      [INSTAGRAM_USER_ID]
+    );
 
 
   if (
-    barberCount.rows[0].count === 0
+    existingTestBarber.rows.length > 0
   ) {
 
-    const result =
+    testBarber =
+      existingTestBarber.rows[0].id;
+  }
+
+
+  // ==================================================
+  // JEŚLI NIE MA TESTOWEGO BARBERA
+  // I BAZA JEST PUSTA
+  // TWORZYMY GO
+  // ==================================================
+
+  if (!testBarber) {
+
+    const countResult =
       await pool.query(
         `
-          INSERT INTO barbers
-          (
-            instagram_user_id,
-            name,
-            address,
-            booking_url,
-            access_token
-          )
-
-          VALUES
-          ($1, $2, $3, $4, $5)
-
-          RETURNING id
-        `,
-        [
-          INSTAGRAM_USER_ID,
-          "Barber Whisky Shop Dębica",
-          "ul. Kolejowa 18, 39-200 Dębica",
-          "https://booksy.com/pl-pl/316593_barber-whisky-shop-debica_barber-shop_11501_debica#ba_s=sh_1",
-          INSTAGRAM_ACCESS_TOKEN || null
-        ]
+          SELECT COUNT(*)::INTEGER AS count
+          FROM barbers
+        `
       );
 
 
-    testBarber =
-      result.rows[0].id;
-
-
-    const services = [
-      ["Strzyżenie", 70],
-      ["Broda", 50],
-      ["Strzyżenie + broda", 110],
-      ["Strzyżenie maszynką", 50],
-      ["Skin fade", 80],
-      ["Trymowanie brody", 50],
-      ["Golenie królewskie", 60],
-      ["Cover siwizny", 50],
-      ["Depilacja nosa i uszu", 20],
-      ["Mycie + stylizacja", 20]
-    ];
-
-
-    for (
-      const [name, price]
-      of services
+    if (
+      countResult.rows[0].count === 0
     ) {
+
+      const insertResult =
+        await pool.query(
+          `
+            INSERT INTO barbers
+            (
+              instagram_user_id,
+              name,
+              address,
+              booking_url,
+              access_token
+            )
+
+            VALUES
+            (
+              $1,
+              $2,
+              $3,
+              $4,
+              $5
+            )
+
+            RETURNING id
+          `,
+          [
+            INSTAGRAM_USER_ID,
+            "Barber Whisky Shop Dębica",
+            "ul. Kolejowa 18, 39-200 Dębica",
+            "https://booksy.com/",
+            INSTAGRAM_ACCESS_TOKEN || null
+          ]
+        );
+
+
+      testBarber =
+        insertResult.rows[0].id;
+
+
+      // ==================================================
+      // TESTOWE USŁUGI
+      // ==================================================
 
       await pool.query(
         `
@@ -1623,59 +2177,82 @@ async function initializeDatabase() {
           )
 
           VALUES
-          ($1, $2, $3)
+          ($1, $2, $3),
+          ($1, $4, $5),
+          ($1, $6, $7)
 
           ON CONFLICT
-          (barber_id, name)
-          DO NOTHING
-        `,
-        [
-          testBarber,
-          name,
-          price
-        ]
-      );
-    }
-
-
-    const openingHours = [
-      ["Poniedziałek", "9:00–19:00"],
-      ["Wtorek", "9:00–19:00"],
-      ["Środa", "9:00–19:00"],
-      ["Czwartek", "9:00–19:00"],
-      ["Piątek", "9:00–19:00"],
-      ["Sobota", "9:00–15:00"],
-      ["Niedziela", "zamknięte"]
-    ];
-
-
-    for (
-      const [day, hours]
-      of openingHours
-    ) {
-
-      await pool.query(
-        `
-          INSERT INTO opening_hours
           (
             barber_id,
-            day,
-            hours
+            name
           )
 
-          VALUES
-          ($1, $2, $3)
-
-          ON CONFLICT
-          (barber_id, day)
           DO NOTHING
         `,
         [
           testBarber,
+          "Strzyżenie",
+          70,
+
+          "Broda",
+          50,
+
+          "Strzyżenie + broda",
+          110
+        ]
+      );
+
+
+      // ==================================================
+      // TESTOWE GODZINY
+      // ==================================================
+
+      const testHours = [
+        ["Poniedziałek", "09:00–18:00"],
+        ["Wtorek", "09:00–18:00"],
+        ["Środa", "09:00–18:00"],
+        ["Czwartek", "09:00–18:00"],
+        ["Piątek", "09:00–18:00"],
+        ["Sobota", "09:00–15:00"],
+        ["Niedziela", "zamknięte"]
+      ];
+
+
+      for (
+        const [
           day,
           hours
         ]
-      );
+        of testHours
+      ) {
+
+        await pool.query(
+          `
+            INSERT INTO opening_hours
+            (
+              barber_id,
+              day,
+              hours
+            )
+
+            VALUES
+            ($1, $2, $3)
+
+            ON CONFLICT
+            (
+              barber_id,
+              day
+            )
+
+            DO NOTHING
+          `,
+          [
+            testBarber,
+            day,
+            hours
+          ]
+        );
+      }
     }
   }
 
@@ -1819,8 +2396,6 @@ async function initializeDatabase() {
     ALTER COLUMN barber_id SET NOT NULL
   `);
 }
-
-
 // ==================================================
 // POBIERANIE BARBERA PO INSTAGRAM USER ID
 // ==================================================
@@ -1846,7 +2421,9 @@ async function getBarberByInstagramId(
 
         LIMIT 1
       `,
-      [instagramUserId]
+      [
+        instagramUserId
+      ]
     );
 
 
@@ -1862,11 +2439,14 @@ async function getBarberByInstagramId(
     barberResult.rows[0];
 
 
+  // ==================================================
+  // USŁUGI BARBERA
+  // ==================================================
+
   const servicesResult =
     await pool.query(
       `
         SELECT
-          id,
           name,
           price
 
@@ -1876,15 +2456,20 @@ async function getBarberByInstagramId(
 
         ORDER BY id ASC
       `,
-      [barber.id]
+      [
+        barber.id
+      ]
     );
 
 
-  const openingHoursResult =
+  // ==================================================
+  // GODZINY BARBERA
+  // ==================================================
+
+  const hoursResult =
     await pool.query(
       `
         SELECT
-          id,
           day,
           hours
 
@@ -1894,7 +2479,9 @@ async function getBarberByInstagramId(
 
         ORDER BY id ASC
       `,
-      [barber.id]
+      [
+        barber.id
+      ]
     );
 
 
@@ -1922,7 +2509,7 @@ async function getBarberByInstagramId(
       servicesResult.rows,
 
     openingHours:
-      openingHoursResult.rows
+      hoursResult.rows
   };
 }
 
@@ -1999,7 +2586,7 @@ async function saveMessage(
 
 
 // ==================================================
-// POBIERANIE / TWORZENIE ROZMOWY
+// POBRANIE / UTWORZENIE ROZMOWY
 // ==================================================
 
 async function getOrCreateConversation(
@@ -2013,11 +2600,13 @@ async function getOrCreateConversation(
         INSERT INTO conversations
         (
           barber_id,
-          instagram_user_id
+          instagram_user_id,
+          ai_active,
+          updated_at
         )
 
         VALUES
-        ($1, $2)
+        ($1, $2, TRUE, NOW())
 
         ON CONFLICT
         (
@@ -2046,473 +2635,547 @@ async function getOrCreateConversation(
 
 
 // ==================================================
-// WŁĄCZ / WYŁĄCZ AI
+// WŁĄCZANIE / WYŁĄCZANIE AI
 // ==================================================
 
 async function setConversationAI(
   barberId,
   instagramUserId,
-  aiActive
+  active
 ) {
 
-  await pool.query(
-    `
-      INSERT INTO conversations
-      (
-        barber_id,
-        instagram_user_id,
-        ai_active
-      )
+  const result =
+    await pool.query(
+      `
+        INSERT INTO conversations
+        (
+          barber_id,
+          instagram_user_id,
+          ai_active,
+          updated_at
+        )
 
-      VALUES
-      ($1, $2, $3)
+        VALUES
+        ($1, $2, $3, NOW())
 
-      ON CONFLICT
-      (
-        barber_id,
-        instagram_user_id
-      )
+        ON CONFLICT
+        (
+          barber_id,
+          instagram_user_id
+        )
 
-      DO UPDATE SET
-        ai_active = EXCLUDED.ai_active,
-        updated_at = NOW()
-    `,
-    [
-      barberId,
-      instagramUserId,
-      aiActive
-    ]
+        DO UPDATE SET
+          ai_active = EXCLUDED.ai_active,
+          updated_at = NOW()
+
+        RETURNING
+          id,
+          barber_id,
+          instagram_user_id,
+          ai_active
+      `,
+      [
+        barberId,
+        instagramUserId,
+        active
+      ]
+    );
+
+
+  return result.rows[0];
+}
+
+
+// ==================================================
+// WYKRYWANIE CHĘCI ROZMOWY Z CZŁOWIEKIEM
+// ==================================================
+//
+// Ta funkcja NIE korzysta z AI.
+//
+// Najpierw sprawdzamy proste, jednoznaczne
+// komunikaty klienta.
+//
+// Dzięki temu nie wysyłamy wiadomości do OpenAI,
+// jeśli klient od razu chce człowieka.
+//
+
+function wantsHumanAgent(message) {
+
+  if (
+    !message ||
+    typeof message !== "string"
+  ) {
+
+    return false;
+  }
+
+
+  const normalized =
+    message
+      .toLowerCase()
+      .trim()
+      .replace(/[.,!?;:()[\]{}"'„”]/g, " ")
+      .replace(/\s+/g, " ");
+
+
+  const patterns = [
+
+    "chce rozmawiac z czlowiekiem",
+
+    "chce rozmawiac z barberem",
+
+    "chce rozmawiac z barber",
+
+    "chce porozmawiac z czlowiekiem",
+
+    "chce porozmawiac z barberem",
+
+    "chce porozmawiac z barber",
+
+    "polacz mnie z czlowiekiem",
+
+    "polacz mnie z barberem",
+
+    "polacz mnie z barber",
+
+    "przekaz mnie do czlowieka",
+
+    "przekaz mnie do barbera",
+
+    "przekaz mnie do barber",
+
+    "przekieruj mnie do czlowieka",
+
+    "przekieruj mnie do barbera",
+
+    "przekieruj mnie do barber",
+
+    "nie chce rozmawiac z ai",
+
+    "nie chce rozmawiac z botem",
+
+    "nie chce rozmawiac z chatbotem",
+
+    "chce czlowieka",
+
+    "chce barbera",
+
+    "chce z barberem",
+
+    "czlowiek prosze",
+
+    "barber prosze"
+  ];
+
+
+  return patterns.some(
+    pattern =>
+      normalized.includes(pattern)
   );
 }
 
 
 // ==================================================
-// AI
+// ODPOWIEDŹ PRZY PRZEKAZANIU DO CZŁOWIEKA
 // ==================================================
 
-async function askAI(
-  barberInstagramId,
-  clientInstagramId,
-  userMessage
-) {
-
-  try {
-
-    const barber =
-      await getBarberByInstagramId(
-        barberInstagramId
-      );
-
-
-    if (!barber) {
-
-      console.log(
-        "Nie znaleziono barbera dla AI."
-      );
-
-      return null;
-    }
-
-
-    const history =
-      await getConversationHistory(
-        barber.id,
-        clientInstagramId
-      );
-
-
-    // ==================================================
-    // ZAPISUJEMY WIADOMOŚĆ KLIENTA
-    // ==================================================
-
-    await saveMessage(
-      barber.id,
-      clientInstagramId,
-      "user",
-      userMessage
-    );
-
-
-    // ==================================================
-    // INFORMACJE O BARBERZE
-    // ==================================================
-
-    const servicesText =
-      barber.services.length > 0
-
-        ? barber.services
-            .map(
-              service =>
-                `- ${service.name}: ${service.price} zł`
-            )
-            .join("\n")
-
-        : "Brak podanych usług.";
-
-
-    const openingHoursText =
-      barber.openingHours.length > 0
-
-        ? barber.openingHours
-            .map(
-              row =>
-                `- ${row.day}: ${row.hours}`
-            )
-            .join("\n")
-
-        : "Brak podanych godzin.";
-
-
-    // ==================================================
-    // HISTORIA
-    // ==================================================
-
-    const historyText =
-      history.length > 0
-
-        ? history
-            .map(
-              item =>
-                `${item.role === "user"
-                  ? "Klient"
-                  : "AI"
-                }: ${item.message}`
-            )
-            .join("\n")
-
-        : "Brak wcześniejszej historii.";
-
-
-    // ==================================================
-    // PROMPT
-    // ==================================================
-
-    const systemPrompt = `
-Jesteś wirtualną recepcjonistką barbera.
-
-Odpowiadasz klientom po polsku.
-
-Twoim zadaniem jest pomagać klientom w sprawach związanych
-z konkretnym barberem.
-
-NAJWAŻNIEJSZA ZASADA:
-
-Korzystaj WYŁĄCZNIE z informacji przekazanych poniżej.
-
-NIE WYMYŚLAJ:
-- cen,
-- usług,
-- godzin otwarcia,
-- adresu,
-- linków,
-- promocji,
-- terminów,
-- dostępności,
-- informacji o barberze.
-
-Jeżeli klient pyta o coś, czego nie ma w przekazanych
-informacjach, powiedz krótko, że barber może podać
-dokładną informację.
-
-Nie udawaj, że możesz sprawdzić kalendarz,
-jeżeli nie masz dostępu do kalendarza.
-
-Jeżeli klient chce umówić wizytę,
-podaj link do rezerwacji, jeżeli jest dostępny.
-
-Odpowiedzi powinny być krótkie, naturalne
-i przyjazne.
-
-Nie pisz długich wyjaśnień.
-
-INFORMACJE O BARBERZE:
-
-Nazwa:
-${barber.name}
-
-Adres:
-${barber.address || "Brak informacji"}
-
-Link do rezerwacji:
-${barber.bookingUrl || "Brak linku"}
-
-USŁUGI I CENY:
-
-${servicesText}
-
-GODZINY OTWARCIA:
-
-${openingHoursText}
-
-HISTORIA ROZMOWY:
-
-${historyText}
-`;
-
-
-    // ==================================================
-    // OPENAI
-    // ==================================================
-
-    if (!OPENAI_API_KEY) {
-
-      console.error(
-        "Brak OPENAI_API_KEY."
-      );
-
-      return null;
-    }
-
-
-    const response =
-      await fetch(
-        "https://api.openai.com/v1/responses",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            "Authorization":
-              `Bearer ${OPENAI_API_KEY}`
-          },
-
-          body:
-            JSON.stringify({
-              model: "gpt-5.6-luna",
-
-              input: [
-                {
-                  role: "system",
-                  content: systemPrompt
-                },
-                {
-                  role: "user",
-                  content: userMessage
-                }
-              ]
-            })
-        }
-      );
-
-
-    if (!response.ok) {
-
-      const errorText =
-        await response.text();
-
-      console.error(
-        "Błąd OpenAI:",
-        response.status,
-        errorText
-      );
-
-      return null;
-    }
-
-
-    const data =
-      await response.json();
-
-
-    let aiResponse = "";
-
-
-    if (
-      typeof data.output_text === "string"
-    ) {
-
-      aiResponse =
-        data.output_text.trim();
-
-    } else if (
-      Array.isArray(data.output)
-    ) {
-
-      for (
-        const outputItem
-        of data.output
-      ) {
-
-        if (
-          !Array.isArray(
-            outputItem.content
-          )
-        ) {
-          continue;
-        }
-
-
-        for (
-          const contentItem
-          of outputItem.content
-        ) {
-
-          if (
-            contentItem.type ===
-            "output_text"
-            &&
-            typeof contentItem.text ===
-            "string"
-          ) {
-
-            aiResponse +=
-              contentItem.text;
-          }
-        }
-      }
-
-
-      aiResponse =
-        aiResponse.trim();
-    }
-
-
-    if (!aiResponse) {
-
-      console.log(
-        "OpenAI nie zwróciło tekstu."
-      );
-
-      return null;
-    }
-
-
-    // ==================================================
-    // ZAPIS ODPOWIEDZI AI
-    // ==================================================
-
-    await saveMessage(
-      barber.id,
-      clientInstagramId,
-      "assistant",
-      aiResponse
-    );
-
-
-    return aiResponse;
-
-
-  } catch (error) {
-
-    console.error(
-      "Błąd askAI:",
-      error
-    );
-
-    return null;
-  }
+function getHumanHandoffMessage() {
+
+  return (
+    "Jasne 👍 Przekazuję rozmowę barberowi. " +
+    "Od tej chwili nie będę już automatycznie odpowiadać. " +
+    "Barber odezwie się do Ciebie, gdy będzie mógł."
+  );
 }
 
 
+// ==================================================
+// AI - GŁÓWNA FUNKCJA
+// ==================================================
+
+async function askAI(
+  barberId,
+  instagramUserId,
+  userMessage
+) {
+
+  const barber =
+    await getBarberByInstagramId(
+      instagramUserId
+    );
+
+
+  if (!barber) {
+
+    throw new Error(
+      "Nie znaleziono barbera."
+    );
+  }
+
+
+  // ==================================================
+  // HISTORIA PRZED DODANIEM AKTUALNEJ WIADOMOŚCI
+  // ==================================================
+
+  const history =
+    await getConversationHistory(
+      barberId,
+      instagramUserId
+    );
+
+
+  // ==================================================
+  // ZAPIS WIADOMOŚCI KLIENTA
+  // ==================================================
+
+  await saveMessage(
+    barberId,
+    instagramUserId,
+    "user",
+    userMessage
+  );
+
+
+  // ==================================================
+  // USŁUGI
+  // ==================================================
+
+  const servicesText =
+    barber.services.length > 0
+
+      ? barber.services
+          .map(
+            service =>
+              `- ${service.name}: ${service.price} zł`
+          )
+          .join("\n")
+
+      : "Brak podanych usług.";
+
+
+  // ==================================================
+  // GODZINY
+  // ==================================================
+
+  const openingHoursText =
+    barber.openingHours.length > 0
+
+      ? barber.openingHours
+          .map(
+            row =>
+              `- ${row.day}: ${row.hours}`
+          )
+          .join("\n")
+
+      : "Brak podanych godzin otwarcia.";
+
+
+  // ==================================================
+  // HISTORIA
+  // ==================================================
+
+  const historyText =
+    history.length > 0
+
+      ? history
+          .map(
+            item =>
+              `${item.role === "user" ? "Klient" : "AI"}: ${item.message}`
+          )
+          .join("\n")
+
+      : "Brak wcześniejszej historii rozmowy.";
+
+
+  // ==================================================
+  // SYSTEM PROMPT
+  // ==================================================
+
+  const systemPrompt = `
+Jesteś wirtualnym recepcjonistą barbera.
+
+Nazwa barbera:
+${barber.name}
+
+Adres:
+${barber.address || "Brak informacji."}
+
+Link do rezerwacji:
+${barber.bookingUrl || "Brak informacji."}
+
+USŁUGI:
+${servicesText}
+
+GODZINY OTWARCIA:
+${openingHoursText}
+
+HISTORIA ROZMOWY:
+${historyText}
+
+ZASADY:
+
+1. Odpowiadaj krótko, naturalnie i przyjaźnie.
+
+2. Korzystaj WYŁĄCZNIE z informacji przekazanych
+   w danych barbera oraz historii rozmowy.
+
+3. Nigdy nie wymyślaj:
+   - cen,
+   - usług,
+   - godzin,
+   - adresów,
+   - linków,
+   - promocji,
+   - terminów,
+   - dostępności terminów.
+
+4. Nie udawaj, że masz dostęp do kalendarza
+   ani systemu rezerwacji.
+
+5. Jeżeli klient pyta o coś, czego nie ma
+   w przekazanych danych, powiedz krótko,
+   że dokładną informację może podać barber.
+
+6. Jeżeli klient chce się umówić,
+   podaj link do rezerwacji, jeżeli jest dostępny.
+
+7. Jeżeli nie ma linku do rezerwacji,
+   powiedz, że barber może podać szczegóły.
+
+8. Nie twierdź, że konkretna godzina jest wolna,
+   jeżeli nie masz takiej informacji.
+
+9. Nie przedstawiaj się jako człowiek.
+
+10. Jeżeli klient wyraźnie chce rozmawiać
+    z prawdziwym barberem, nie próbuj go przekonywać
+    do rozmowy z AI.
+
+Twoim zadaniem jest pomagać klientom uzyskać
+informacje dotyczące konkretnego barbera.
+`;
+
+
+  // ==================================================
+  // OPENAI RESPONSES API
+  // ==================================================
+
+  if (!OPENAI_API_KEY) {
+
+    throw new Error(
+      "Brak OPENAI_API_KEY."
+    );
+  }
+
+
+  const response =
+    await fetch(
+      "https://api.openai.com/v1/responses",
+      {
+
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          "Authorization":
+            `Bearer ${OPENAI_API_KEY}`
+        },
+
+        body:
+          JSON.stringify({
+
+            model:
+              "gpt-5.6-luna",
+
+            instructions:
+              systemPrompt,
+
+            input:
+              userMessage
+          })
+      }
+    );
+
+
+  if (!response.ok) {
+
+    const errorText =
+      await response.text();
+
+
+    console.error(
+      "OpenAI API error:",
+      errorText
+    );
+
+
+    throw new Error(
+      "OpenAI API zwróciło błąd."
+    );
+  }
+
+
+  const data =
+    await response.json();
+
+
+  const aiMessage =
+    data.output_text?.trim();
+
+
+  if (!aiMessage) {
+
+    throw new Error(
+      "OpenAI nie zwróciło tekstowej odpowiedzi."
+    );
+  }
+
+
+  // ==================================================
+  // ZAPIS ODPOWIEDZI AI
+  // ==================================================
+
+  await saveMessage(
+    barberId,
+    instagramUserId,
+    "assistant",
+    aiMessage
+  );
+
+
+  return aiMessage;
+}
 // ==================================================
 // INSTAGRAM - WYSYŁANIE WIADOMOŚCI
 // ==================================================
 
 async function sendInstagramMessage(
   barberInstagramId,
-  recipientId,
+  recipientInstagramId,
   message
 ) {
 
-  try {
-
-    const barber =
-      await getBarberByInstagramId(
-        barberInstagramId
-      );
-
-
-    if (!barber) {
-
-      console.error(
-        "Nie znaleziono barbera przy wysyłaniu."
-      );
-
-      return false;
-    }
-
-
-    const accessToken =
-  barber.accessToken;
-
-if (!accessToken) {
-  console.error(
-    `Brak Instagram Access Token dla barbera ${barber.id}.`
-  );
-
-  return false;
-}
-
-
-    const response =
-      await fetch(
-        `https://graph.instagram.com/v23.0/${barberInstagramId}/messages`,
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
-
-          body:
-            JSON.stringify({
-              recipient: {
-                id: recipientId
-              },
-
-              message: {
-                text: message
-              },
-
-              access_token:
-                accessToken
-            })
-        }
-      );
-
-
-    const responseText =
-      await response.text();
-
-
-    if (!response.ok) {
-
-      console.error(
-        "Błąd Instagram Send API:",
-        response.status,
-        responseText
-      );
-
-      return false;
-    }
-
-
-    console.log(
-      "Wiadomość wysłana na Instagram:",
-      responseText
+  const barber =
+    await getBarberByInstagramId(
+      barberInstagramId
     );
 
 
-    return true;
-
-
-  } catch (error) {
+  if (!barber) {
 
     console.error(
-      "Błąd sendInstagramMessage:",
-      error
+      "Nie znaleziono barbera:",
+      barberInstagramId
     );
 
     return false;
   }
+
+
+  // ==================================================
+  // TOKEN NALEŻY DO KONKRETNEGO BARBERA
+  // ==================================================
+
+  const accessToken =
+    barber.accessToken;
+
+
+  if (!accessToken) {
+
+    console.error(
+      `Brak Instagram Access Token dla barbera ${barber.id}.`
+    );
+
+    return false;
+  }
+
+
+  if (!recipientInstagramId) {
+
+    console.error(
+      "Brak recipientInstagramId."
+    );
+
+    return false;
+  }
+
+
+  if (!message) {
+
+    console.error(
+      "Brak wiadomości do wysłania."
+    );
+
+    return false;
+  }
+
+
+  // ==================================================
+  // INSTAGRAM GRAPH API
+  // ==================================================
+
+  const response =
+    await fetch(
+      `https://graph.instagram.com/v23.0/${barberInstagramId}/messages`,
+      {
+
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body:
+          JSON.stringify({
+
+            recipient: {
+              id:
+                recipientInstagramId
+            },
+
+            message: {
+              text:
+                message
+            },
+
+            access_token:
+              accessToken
+          })
+      }
+    );
+
+
+  const responseText =
+    await response.text();
+
+
+  if (!response.ok) {
+
+    console.error(
+      "Instagram API error:",
+      response.status,
+      responseText
+    );
+
+    return false;
+  }
+
+
+  console.log(
+    "Wiadomość wysłana na Instagram:",
+    responseText
+  );
+
+
+  return true;
 }
 
 
 // ==================================================
-// META WEBHOOK - WERYFIKACJA
+// WEBHOOK - WERYFIKACJA META
 // ==================================================
 
 app.get(
@@ -2535,59 +3198,60 @@ app.get(
     ) {
 
       console.log(
-        "Webhook zweryfikowany."
+        "Webhook Instagram zweryfikowany."
       );
 
-      return res.status(200).send(
-        challenge
-      );
+      return res
+        .status(200)
+        .send(challenge);
     }
 
 
-    return res.sendStatus(403);
+    return res
+      .sendStatus(403);
   }
 );
 
 
 // ==================================================
-// META WEBHOOK - ODBIERANIE WIADOMOŚCI
+// WEBHOOK - ODBIERANIE WIADOMOŚCI INSTAGRAM
 // ==================================================
 
 app.post(
   "/webhook",
   async (req, res) => {
 
+    console.log(
+      "=============================="
+    );
+
+    console.log(
+      "INSTAGRAM WEBHOOK:"
+    );
+
+    console.log(
+      JSON.stringify(
+        req.body,
+        null,
+        2
+      )
+    );
+
+
+    // ==================================================
+    // META OCZEKUJE SZYBKIEGO 200
+    // ==================================================
+
+    if (
+      req.body?.object !== "instagram"
+    ) {
+
+      return res
+        .sendStatus(200);
+    }
+
+
     try {
-
-      console.log(
-        "==============================="
-      );
-
-      console.log(
-        "NOWY WEBHOOK"
-      );
-
-      console.log(
-        JSON.stringify(
-          req.body,
-          null,
-          2
-        )
-      );
-
-
-      // ==================================================
-      // SPRAWDZAMY EVENT
-      // ==================================================
-
-      if (
-        req.body.object !==
-        "instagram"
-      ) {
-
-        return res.sendStatus(200);
-      }
-
 
       const entries =
         req.body.entry || [];
@@ -2607,41 +3271,48 @@ app.post(
           of messaging
         ) {
 
-          const senderId =
-            event.sender &&
-            event.sender.id;
+          // ==================================================
+          // NADAWCA
+          // ==================================================
 
+          const senderId =
+            event.sender?.id;
+
+
+          // ==================================================
+          // ODBIORCA
+          // Czyli konto barbera
+          // ==================================================
 
           const recipientId =
-            event.recipient &&
-            event.recipient.id;
+            event.recipient?.id;
 
 
-          const message =
-            event.message;
-
+          // ==================================================
+          // TREŚĆ WIADOMOŚCI
+          // ==================================================
 
           const messageText =
-            message &&
-            typeof message.text ===
-              "string"
-              ? message.text.trim()
-              : "";
+            event.message?.text;
 
+
+          // ==================================================
+          // ECHO
+          //
+          // Instagram może wysłać do webhooka również
+          // wiadomość wysłaną przez samo konto barbera.
+          //
+          // Nie chcemy wtedy uruchamiać AI.
+          // ==================================================
 
           const isEcho =
-            message &&
-            message.is_echo === true;
+            event.message?.is_echo === true;
 
-
-          // ==================================================
-          // IGNORUJEMY ECHO
-          // ==================================================
 
           if (isEcho) {
 
             console.log(
-              "Ignorujemy echo wiadomości."
+              "Pomijam echo wiadomości."
             );
 
             continue;
@@ -2649,7 +3320,7 @@ app.post(
 
 
           // ==================================================
-          // IGNORUJEMY INNE EVENTY
+          // TYLKO WIADOMOŚCI TEKSTOWE
           // ==================================================
 
           if (
@@ -2659,20 +3330,15 @@ app.post(
           ) {
 
             console.log(
-              "Webhook nie zawiera wiadomości tekstowej."
+              "Pomijam event bez tekstu / nadawcy / odbiorcy."
             );
 
             continue;
           }
 
 
-          console.log(
-            `Wiadomość od ${senderId}: ${messageText}`
-          );
-
-
           // ==================================================
-          // SPRAWDZAMY BARBERA
+          // ZNAJDŹ BARBERA
           // ==================================================
 
           const barber =
@@ -2684,20 +3350,16 @@ app.post(
           if (!barber) {
 
             console.log(
-              `Brak barbera dla Instagram ID: ${recipientId}`
+              "Nie znaleziono barbera dla recipientId:",
+              recipientId
             );
 
             continue;
           }
 
 
-          console.log(
-            `Wiadomość należy do barbera: ${barber.name}`
-          );
-
-
           // ==================================================
-          // POBIERAMY / TWORZYMY ROZMOWĘ
+          // UTWÓRZ / POBIERZ ROZMOWĘ
           // ==================================================
 
           const conversation =
@@ -2708,20 +3370,19 @@ app.post(
 
 
           console.log(
-            `AI dla rozmowy ${senderId}: ${
-              conversation.ai_active
-                ? "WŁĄCZONE"
-                : "WYŁĄCZONE"
-            }`
+            `Rozmowa barber=${barber.id}, klient=${senderId}, AI=${conversation.ai_active}`
           );
 
 
           // ==================================================
-          // AI WYŁĄCZONE
+          // JEŻELI AI JEST WYŁĄCZONE
+          //
+          // Zapisujemy wiadomość klienta,
+          // ale NIE ODPOWIADAMY.
           // ==================================================
 
           if (
-            !conversation.ai_active
+            conversation.ai_active === false
           ) {
 
             await saveMessage(
@@ -2733,7 +3394,7 @@ app.post(
 
 
             console.log(
-              `AI wyłączone - brak odpowiedzi dla ${senderId}`
+              "AI WYŁĄCZONE - brak automatycznej odpowiedzi."
             );
 
             continue;
@@ -2741,71 +3402,640 @@ app.post(
 
 
           // ==================================================
-          // AI
+          // AUTOMATYCZNE PRZEKAZANIE DO CZŁOWIEKA
+          // ==================================================
+          //
+          // Sprawdzamy to PRZED wysłaniem wiadomości
+          // do OpenAI.
+          //
+          // Jeśli klient jasno chce człowieka:
+          //
+          // 1. zapisujemy jego wiadomość,
+          // 2. wyłączamy AI,
+          // 3. wysyłamy jednorazowe potwierdzenie,
+          // 4. nie uruchamiamy askAI().
+          //
+          // Kolejne wiadomości klienta będą już trafiały
+          // do barbera bez odpowiedzi AI.
           // ==================================================
 
-          const aiResponse =
-            await askAI(
-              recipientId,
+          if (
+            wantsHumanAgent(
+              messageText
+            )
+          ) {
+
+            console.log(
+              "KLIENT CHCE ROZMAWIAĆ Z CZŁOWIEKIEM."
+            );
+
+
+            await saveMessage(
+              barber.id,
               senderId,
+              "user",
               messageText
             );
 
 
-          if (
-            !aiResponse ||
-            !aiResponse.trim()
-          ) {
+            await setConversationAI(
+              barber.id,
+              senderId,
+              false
+            );
+
+
+            const handoffMessage =
+              getHumanHandoffMessage();
+
+
+            await saveMessage(
+              barber.id,
+              senderId,
+              "assistant",
+              handoffMessage
+            );
+
+
+            await sendInstagramMessage(
+              recipientId,
+              senderId,
+              handoffMessage
+            );
+
 
             console.log(
-              "AI nie zwróciło tekstu."
+              "AI WYŁĄCZONE - rozmowa przekazana barberowi."
             );
+
 
             continue;
           }
 
 
           // ==================================================
-          // ODPOWIEDŹ NA INSTAGRAMIE
+          // NORMALNA ODPOWIEDŹ AI
           // ==================================================
 
-          await sendInstagramMessage(
-            recipientId,
-            senderId,
-            aiResponse
-          );
+          try {
+
+            const aiResponse =
+              await askAI(
+                barber.id,
+                senderId,
+                messageText
+              );
 
 
-          console.log(
-            "Cały proces zakończony poprawnie."
-          );
+            if (
+              aiResponse
+            ) {
+
+              await sendInstagramMessage(
+                recipientId,
+                senderId,
+                aiResponse
+              );
+            }
+
+
+          } catch (aiError) {
+
+            console.error(
+              "Błąd AI:",
+              aiError
+            );
+
+
+            // ==================================================
+            // NIE WYSYŁAMY KLIENTOWI TECHNICZNEGO BŁĘDU.
+            // ==================================================
+
+            const fallbackMessage =
+              "Przepraszam, mam teraz chwilowy problem z odpowiedzią. Barber będzie mógł pomóc Ci bezpośrednio.";
+
+
+            try {
+
+              await sendInstagramMessage(
+                recipientId,
+                senderId,
+                fallbackMessage
+              );
+
+            } catch (
+              fallbackError
+            ) {
+
+              console.error(
+                "Błąd wysyłania fallback:",
+                fallbackError
+              );
+            }
+          }
         }
       }
 
 
-      res.sendStatus(200);
+      // ==================================================
+      // META MUSI OTRZYMAĆ 200
+      // ==================================================
+
+      return res
+        .sendStatus(200);
 
 
     } catch (error) {
 
       console.error(
-        "==============================="
-      );
-
-      console.error(
-        "BŁĄD:"
-      );
-
-      console.error(
+        "Błąd webhooka Instagram:",
         error
       );
 
-      res.sendStatus(200);
+
+      // ==================================================
+      // NAWET PRZY BŁĘDZIE ZWRACAMY 200,
+      // ABY META NIE WYSYŁAŁA TEGO SAMEGO EVENTU
+      // W KÓŁKO.
+      // ==================================================
+
+      return res
+        .sendStatus(200);
+    }
+  }
+);
+// ==================================================
+// ADMIN - EDYCJA BARBERA
+// ==================================================
+
+app.get(
+  "/admin/barbers/:id",
+  requireAdmin,
+  async (req, res) => {
+
+    const barberId =
+      Number(req.params.id);
+
+
+    if (!Number.isInteger(barberId)) {
+
+      return res.status(400).send(
+        "Nieprawidłowe ID barbera."
+      );
+    }
+
+
+    try {
+
+      const barberResult =
+        await pool.query(
+          `
+            SELECT
+              id,
+              name,
+              instagram_user_id,
+              address,
+              booking_url,
+              access_token
+
+            FROM barbers
+
+            WHERE id = $1
+          `,
+          [barberId]
+        );
+
+
+      if (
+        barberResult.rows.length === 0
+      ) {
+
+        return res.status(404).send(
+          "Nie znaleziono barbera."
+        );
+      }
+
+
+      const barber =
+        barberResult.rows[0];
+
+
+      const servicesResult =
+        await pool.query(
+          `
+            SELECT
+              name,
+              price
+
+            FROM services
+
+            WHERE barber_id = $1
+
+            ORDER BY id ASC
+          `,
+          [barberId]
+        );
+
+
+      const hoursResult =
+        await pool.query(
+          `
+            SELECT
+              day,
+              hours
+
+            FROM opening_hours
+
+            WHERE barber_id = $1
+
+            ORDER BY id ASC
+          `,
+          [barberId]
+        );
+
+
+      const servicesText =
+        servicesResult.rows
+          .map(
+            service =>
+              `${service.name}|${service.price}`
+          )
+          .join("\n");
+
+
+      const hoursText =
+        hoursResult.rows
+          .map(
+            row =>
+              `${row.day}|${row.hours}`
+          )
+          .join("\n");
+
+
+      res.send(`
+        <!DOCTYPE html>
+
+        <html>
+
+        <head>
+
+          <meta charset="UTF-8">
+
+          <title>
+            Edytuj barbera
+          </title>
+
+          <style>
+
+            body {
+              font-family: Arial, sans-serif;
+              max-width: 900px;
+              margin: 40px auto;
+              padding: 20px;
+            }
+
+            input,
+            textarea {
+              width: 100%;
+              padding: 10px;
+              margin-top: 5px;
+              margin-bottom: 15px;
+              box-sizing: border-box;
+            }
+
+            label {
+              font-weight: bold;
+            }
+
+            button {
+              padding: 12px 20px;
+              background: #111;
+              color: white;
+              border: none;
+              border-radius: 6px;
+              cursor: pointer;
+            }
+
+            .danger {
+              background: #b00020;
+            }
+
+            .hint {
+              color: #666;
+              font-size: 14px;
+            }
+
+          </style>
+
+        </head>
+
+        <body>
+
+          <h1>
+            Edytuj: ${escapeHtml(barber.name)}
+          </h1>
+
+
+          <form
+            method="POST"
+            action="/admin/barbers/${barber.id}"
+          >
+
+            <label>
+              Nazwa
+            </label>
+
+            <input
+              name="name"
+              value="${escapeHtml(barber.name)}"
+              required
+            >
+
+
+            <label>
+              Instagram User ID
+            </label>
+
+            <input
+              name="instagram_user_id"
+              value="${escapeHtml(
+                barber.instagram_user_id
+              )}"
+              required
+            >
+
+
+            <label>
+              Adres
+            </label>
+
+            <input
+              name="address"
+              value="${escapeHtml(
+                barber.address || ""
+              )}"
+            >
+
+
+            <label>
+              Link do rezerwacji
+            </label>
+
+            <input
+              name="booking_url"
+              value="${escapeHtml(
+                barber.booking_url || ""
+              )}"
+            >
+
+
+            <label>
+              Instagram Access Token
+            </label>
+
+            <input
+              name="access_token"
+              type="password"
+              value="${escapeHtml(
+                barber.access_token || ""
+              )}"
+            >
+
+            <p class="hint">
+              Token jest przechowywany dla tego barbera.
+            </p>
+
+
+            <label>
+              Usługi
+            </label>
+
+            <textarea
+              name="services"
+              rows="12"
+            >${escapeHtml(servicesText)}</textarea>
+
+            <p class="hint">
+              Format:
+              Nazwa|Cena
+            </p>
+
+
+            <label>
+              Godziny otwarcia
+            </label>
+
+            <textarea
+              name="opening_hours"
+              rows="10"
+            >${escapeHtml(hoursText)}</textarea>
+
+            <p class="hint">
+              Format:
+              Dzień|Godziny
+            </p>
+
+
+            <button type="submit">
+              Zapisz zmiany
+            </button>
+
+          </form>
+
+
+          <br>
+
+
+          <form
+            method="POST"
+            action="/admin/barbers/${barber.id}/delete"
+            onsubmit="return confirm('Na pewno usunąć tego barbera?')"
+          >
+
+            <button
+              class="danger"
+              type="submit"
+            >
+              Usuń barbera
+            </button>
+
+          </form>
+
+
+          <br>
+
+
+          <a href="/admin">
+            ← Wróć do listy
+          </a>
+
+        </body>
+
+        </html>
+      `);
+
+
+    } catch (error) {
+
+      console.error(
+        "Błąd edycji barbera:",
+        error
+      );
+
+      res.status(500).send(
+        "Błąd serwera."
+      );
     }
   }
 );
 
 
+// ==================================================
+// ADMIN - AKTUALIZACJA BARBERA
+// ==================================================
+
+app.post(
+  "/admin/barbers/:id",
+  requireAdmin,
+  async (req, res) => {
+
+    const barberId =
+      Number(req.params.id);
+
+
+    if (!Number.isInteger(barberId)) {
+
+      return res.status(400).send(
+        "Nieprawidłowe ID barbera."
+      );
+    }
+
+
+    const {
+      name,
+      instagram_user_id,
+      address,
+      booking_url,
+      access_token,
+      services,
+      opening_hours
+    } = req.body;
+
+
+    const client =
+      await pool.connect();
+
+
+    try {
+
+      await client.query(
+        "BEGIN"
+      );
+
+
+      await client.query(
+        `
+          UPDATE barbers
+
+          SET
+            name = $1,
+            instagram_user_id = $2,
+            address = $3,
+            booking_url = $4,
+            access_token = $5
+
+          WHERE id = $6
+        `,
+        [
+          name.trim(),
+          instagram_user_id.trim(),
+          address?.trim() || null,
+          booking_url?.trim() || null,
+          access_token?.trim() || null,
+          barberId
+        ]
+      );
+
+
+      await client.query(
+        `
+          DELETE FROM services
+
+          WHERE barber_id = $1
+        `,
+        [barberId]
+      );
+
+
+      await client.query(
+        `
+          DELETE FROM opening_hours
+
+          WHERE barber_id = $1
+        `,
+        [barberId]
+      );
+
+
+      await saveServicesFromText(
+        client,
+        barberId,
+        services
+      );
+
+
+      await saveOpeningHoursFromText(
+        client,
+        barberId,
+        opening_hours
+      );
+
+
+      await client.query(
+        "COMMIT"
+      );
+
+
+      res.redirect(
+        `/admin/barbers/${barberId}`
+      );
+
+
+    } catch (error) {
+
+      await client.query(
+        "ROLLBACK"
+      );
+
+
+      console.error(
+        "Błąd aktualizacji barbera:",
+        error
+      );
+
+
+      if (
+        error.code === "23505"
+      ) {
+
+        return res.status(400).send(
+          "Ten Instagram User ID już istnieje."
+        );
+      }
+
+
+      res.status(500).send(
+        "Nie udało się zapisać zmian."
+      );
+
+
+    } finally {
+
+      client.release();
+
+    }
+  }
+);
 // ==================================================
 // START SERWERA
 // ==================================================
@@ -2814,23 +4044,31 @@ async function startServer() {
 
   try {
 
+    // ==================================================
+    // INICJALIZACJA BAZY DANYCH
+    // ==================================================
+
     await initializeDatabase();
 
+
+    // ==================================================
+    // URUCHOMIENIE EXPRESS
+    // ==================================================
 
     app.listen(
       PORT,
       () => {
 
         console.log(
-          "================================"
+          `Server działa na porcie ${PORT}`
         );
 
         console.log(
-          `AI Barber Bot działa na porcie ${PORT}`
+          `Admin: /admin`
         );
 
         console.log(
-          "================================"
+          `Webhook: /webhook`
         );
       }
     );
@@ -2839,16 +4077,18 @@ async function startServer() {
   } catch (error) {
 
     console.error(
-      "Błąd podczas uruchamiania serwera:"
-    );
-
-    console.error(
+      "Błąd podczas uruchamiania serwera:",
       error
     );
+
 
     process.exit(1);
   }
 }
 
+
+// ==================================================
+// START
+// ==================================================
 
 startServer();
