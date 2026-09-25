@@ -356,15 +356,20 @@ app.get(
           <div class="barber">
 
             <h2>
-              ${escapeHtml(barber.name)}
-            </h2>
+  ${escapeHtml(barber.name)}
+</h2>
 
-            <p>
-              <strong>Instagram ID:</strong>
-              ${escapeHtml(
-                barber.instagram_user_id
-              )}
-            </p>
+<p>
+  <strong>ID:</strong>
+  ${barber.id}
+</p>
+
+<p>
+  <strong>Instagram ID:</strong>
+  ${escapeHtml(
+    barber.instagram_user_id
+  )}
+</p>
 
             <p>
               <strong>Adres:</strong>
