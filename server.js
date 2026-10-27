@@ -2716,11 +2716,13 @@ function wantsHumanAgent(message) {
 
 
   const normalized =
-    message
-      .toLowerCase()
-      .trim()
-      .replace(/[.,!?;:()[\]{}"'„”]/g, " ")
-      .replace(/\s+/g, " ");
+  message
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/[.,!?;:()[\]{}"'„”]/g, " ")
+    .replace(/\s+/g, " ");
 
 
   const patterns = [
