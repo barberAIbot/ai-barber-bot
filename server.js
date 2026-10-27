@@ -3495,12 +3495,16 @@ app.post(
             );
 
 
-            await setConversationAI(
-              barber.id,
-              senderId,
-              false
-            );
+            const handoffResult = await setConversationAI(
+  barber.id,
+  senderId,
+  false
+);
 
+console.log(
+  "HANDOFF ZAPISANY:",
+  JSON.stringify(handoffResult)
+);
 
             const handoffMessage =
               getHumanHandoffMessage();
