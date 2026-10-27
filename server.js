@@ -2718,6 +2718,7 @@ function wantsHumanAgent(message) {
   const normalized =
   message
     .toLowerCase()
+    .replace(/ł/g, "l")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
